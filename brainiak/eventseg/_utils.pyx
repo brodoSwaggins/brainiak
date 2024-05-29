@@ -13,12 +13,12 @@
 #  limitations under the License.
 
 
-from libc.math cimport log
+# from libc.math cimport log
 from numbers import Integral, Real
 from typing import TypeVar, Union
-
 import numpy as np
-cimport numpy as np
+from numpy import log as log
+# cimport numpy as np
 
 T = TypeVar("T", bound=Real)
 

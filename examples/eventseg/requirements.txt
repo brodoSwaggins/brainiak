@@ -4,3 +4,7 @@ sklearn
 deepdish
 scipy
 
+
+psutil~=5.9.8
+requests~=2.31.0
+setuptools~=68.2.0

@@ -52,7 +52,7 @@ from sklearn.utils.validation import check_is_fitted, check_array
 from sklearn.exceptions import NotFittedError
 import itertools
 
-from . import _utils as utils  # type: ignore
+# from . import _utils as utils  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,26 @@ __all__ = [
     "EventSegment",
 ]
 
+def masked_log(x):
+    """Modified version of np.log that manually sets values <=0 to -inf
+
+    Parameters
+    ----------
+    x: ndarray of floats
+        Input to the log function
+
+    Returns
+    -------
+    y: ndarray of floats
+        log of x, with x<=0 values replaced with -inf
+    """
+    y = np.zeros(x.shape)
+    for i in range(x.shape[0]):
+        if x[i] <= 0:
+            y[i] = float("-inf")
+        else:
+            y[i] = np.log(x[i])
+    return y
 
 class EventSegment(BaseEstimator):
     """Class for event segmentation of continuous fMRI data
@@ -384,7 +404,7 @@ class EventSegment(BaseEstimator):
 
         xshape = x.shape
         _x = x.flatten()
-        y = utils.masked_log(_x)
+        y = masked_log(_x)
         return y.reshape(xshape)
 
     def set_event_patterns(self, event_pat):
