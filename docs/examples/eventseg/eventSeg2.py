@@ -18,7 +18,9 @@ try:
 except:
     matplotlib.use(bcke)
     print("Can't run interactive backend, run",matplotlib.get_backend(), "instead")
-
+smallsize=14; mediumsize=16; largesize=18
+plt.rc('xtick', labelsize=smallsize); plt.rc('ytick', labelsize=smallsize); plt.rc('legend', fontsize=mediumsize)
+plt.rc('figure', titlesize=largesize); plt.rc('axes', labelsize=mediumsize); plt.rc('axes', titlesize=mediumsize)
 import nilearn as nl
 from nilearn import plotting, image, datasets
 smallsize=14; mediumsize=16; largesize=18
@@ -48,4 +50,18 @@ plotting.plot_img(atlas.maps, title="Harvard-Oxford atlas", colorbar=True)
 masker = NiftiLabelsMasker(labels_img=atlas.maps, labels=atlas.labels, standardize=True)
 masker.fit(first_TR)
 masker.mask_img_
+#%% ********************************************************************************************************************
+#***********************************************************************************************************************
+# if not os.path.exists(data_path'Sherlock_AG_movie.npy'):
+#     !wget https://ndownloader.figshare.com/files/22927253 -O Sherlock_AG_movie.npy
+# if not os.path.exists('Sherlock_AG_recall.npy'):
+#     !wget https://ndownloader.figshare.com/files/22927256 -O Sherlock_AG_recall.npy
+#%%
+# Sherlock dataset
+data_path = r'/home/itzik/Downloads/Sherlock'
+movie = np.load(data_path+'/Sherlock_AG_movie.npy')
+recall = np.load(data_path+'/Sherlock_AG_recall.npy')
+movie_group = np.mean(movie, axis=0)
+print("(subj x TRs x Voxels) = ", movie.shape, recall.shape, movie_group.shape)
+#%%
 
