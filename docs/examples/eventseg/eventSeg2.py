@@ -33,8 +33,11 @@ from pathlib import Path
 output_dir = Path.cwd() / "images"
 output_dir.mkdir(exist_ok=True, parents=True)
 print(f"Output will be saved to: {output_dir}")
-#%% Example use
-file = r'C:\Users\izika\OneDrive\Documents\ComDePri\Memory\fMRI data Project\RecallFiles_published\recall_files\sherlock_recall_s1.nii'
+#%% Example use - single subject
+if sys.platform == 'linux':
+    file = r'/home/itzik/Desktop/EventBoundaries/recall_files/sherlock_recall_s1.nii'
+else:
+    file = r'C:\Users\izika\OneDrive\Documents\ComDePri\Memory\fMRI data Project\RecallFiles_published\recall_files\sherlock_recall_s1.nii'
 print(image.load_img(file).shape)
 first_TR = image.index_img(file, 0)
 print(first_TR.shape)
