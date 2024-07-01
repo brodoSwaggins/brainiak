@@ -22,7 +22,7 @@ smallsize=14; mediumsize=16; largesize=18
 plt.rc('xtick', labelsize=smallsize); plt.rc('ytick', labelsize=smallsize); plt.rc('legend', fontsize=mediumsize)
 plt.rc('figure', titlesize=largesize); plt.rc('axes', labelsize=mediumsize); plt.rc('axes', titlesize=mediumsize)
 import nilearn as nl
-from nilearn import plotting, image, datasets
+from nilearn import plotting, image, datasets, masking
 smallsize=14; mediumsize=16; largesize=18
 from nilearn.maskers import NiftiLabelsMasker
 from nilearn import datasets
@@ -38,33 +38,43 @@ if sys.platform == 'linux':
     file = r'/home/itzik/Desktop/EventBoundaries/recall_files/sherlock_recall_s1.nii'
 else:
     file = r'C:\Users\izika\OneDrive\Documents\ComDePri\Memory\fMRI data Project\RecallFiles_published\recall_files\sherlock_recall_s1.nii'
-print(image.load_img(file).shape)
+all_TR = image.load_img(file)
+print(all_TR.shape)
 first_TR = image.index_img(file, 0)
 print(first_TR.shape)
-plotting.plot_stat_map(first_TR, threshold=1)#, output_file=output_dir / "first_TR.png")
-plotting.plot_img(image.smooth_img(first_TR, fwhm=3), threshold=1)
+# plotting.plot_stat_map(first_TR, threshold=1)#, output_file=output_dir / "first_TR.png")
+# plotting.plot_img(image.smooth_img(first_TR, fwhm=3), threshold=1)
+# plotting.show()
 # first_TR.to_filename(output_dir / "first_TR.nii.gz")
-#%% Harvard Atlas
-atlas = datasets.fetch_atlas_allen_2011()
-# The first label correspond to the background
-print(f"The atlas contains {len(atlas.labels) - 1} non-overlapping regions")
-plotting.plot_img(atlas.maps, title="Harvard-Oxford atlas", colorbar=True)
+#%% Extract hippocampus using Harvard-Oxford atlas fitted to 3 mm MNI152 template
+atlas_HarvOx = datasets.fetch_atlas_harvard_oxford("sub-maxprob-thr0-2mm")
+mm3_maps = image.resample_to_img(atlas_HarvOx.maps, all_TR, interpolation="nearest")
+# plotting.plot_img(atlas.maps, title="Harvard-Oxford atlas", colorbar=True)
 #%%
-masker = NiftiLabelsMasker(labels_img=atlas.maps, labels=atlas.labels, standardize=True)
-masker.fit(first_TR)
-masker.mask_img_
-#%% ********************************************************************************************************************
-#***********************************************************************************************************************
-# if not os.path.exists(data_path'Sherlock_AG_movie.npy'):
-#     !wget https://ndownloader.figshare.com/files/22927253 -O Sherlock_AG_movie.npy
-# if not os.path.exists('Sherlock_AG_recall.npy'):
-#     !wget https://ndownloader.figshare.com/files/22927256 -O Sherlock_AG_recall.npy
+label = ['Right Hippocampus', 'Left Hippocampus'] ; label_index = [atlas_HarvOx.labels.index(l) for l in label]
+bool_mask = reduce(lambda x, y: x + y, [(mm3_maps.get_fdata() == i) for i in label_index])
+mask_img = nl.image.new_img_like(mm3_maps, bool_mask)
+print(label, "mask // Shape:", bool_mask.shape, ", # voxels: ", np.sum(bool_mask))
 #%%
-# Sherlock dataset
-data_path = r'/home/itzik/Downloads/Sherlock'
-movie = np.load(data_path+'/Sherlock_AG_movie.npy')
-recall = np.load(data_path+'/Sherlock_AG_recall.npy')
-movie_group = np.mean(movie, axis=0)
-print("(subj x TRs x Voxels) = ", movie.shape, recall.shape, movie_group.shape)
+hippocampi_HarvOX = masking.apply_mask([all_TR], mask_img, dtype='f', smoothing_fwhm=None, ensure_finite=True)
+hippocampi_HarvOX.shape # TRs x voxels
+#%% Extract hippocampus using Juelich (based on Hahamy)
+atlas_juelich = datasets.fetch_atlas_juelich("maxprob-thr0-2mm")
+mm3_maps = image.resample_to_img(atlas_juelich.maps, all_TR, interpolation="nearest")
 #%%
-
+label_index = [atlas_juelich.labels.index(l) for l in atlas_juelich.labels if 'hippocampus' in l.lower()]
+bool_mask = reduce(lambda x, y: x + y, [(mm3_maps.get_fdata() == i) for i in label_index])
+mask_img = nl.image.new_img_like(mm3_maps, bool_mask)
+print(label, "mask // Shape:", bool_mask.shape, ", # voxels: ", np.sum(bool_mask))
+hippocampi_juelich = masking.apply_mask([all_TR], mask_img, dtype='f', smoothing_fwhm=None, ensure_finite=True)
+hippocampi_juelich.shape # TRs x voxels
+#%% Extract cortical surface areas
+fsaverage = datasets.fetch_surf_fsaverage()
+atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
+#%%
+imgR = nl.image.new_img_like(mm3_maps, atlas_destrieux["map_right"])
+imgL = nl.image.new_img_like(mm3_maps, atlas_destrieux["map_left"])
+maskerL = NiftiLabelsMasker(labels_img=imgL, standardize=True)
+maskerR = NiftiLabelsMasker(labels_img=imgR, standardize=True)
+#%%
+cortical_L = maskerL.fit_transform([all_TR])
