@@ -70,31 +70,18 @@ imgL = nl.image.new_img_like(all_TR_surfL, atlas_destrieux["map_left"])
 # maskerL = NiftiLabelsMasker(labels_img=imgL, standardize=True)
 # maskerR = NiftiLabelsMasker(labels_img=atlas_destrieux["map_right"], standardize=True)
 #%% cortical_L = maskerL.fit_transform([all_TR])
+side = 'left'
 for i in range(1, 11, 1):
     plotting.plot_surf_roi(
-        fsaverage["pial_left"],
-        roi_map=all_TR_surfL[:,i],
-        hemi="left",
+        fsaverage["pial_" + side],
+        roi_map=all_TR_surfL[:,i] if side == 'left' else all_TR_surfR[:,i],
+        hemi=side,
         view="lateral",
-        bg_map=fsaverage["sulc_left"],
+        bg_map=fsaverage["sulc_" + side],
         bg_on_data=True,
-        title=f"Destrieux left {i}",
+        title=f"Destrieux {side} {i}",
     )
     plt.show(block=False)
     plt.pause(2)
     plt.close()
-#%%
-for i in range(1, 11, 1):
-    plotting.plot_surf_roi(
-        fsaverage["pial_right"],
-        roi_map=all_TR_surfR[:,i],
-        hemi="right",
-        view="lateral",
-        bg_map=fsaverage["sulc_right"],
-        bg_on_data=True,# cmap="Accent",
-        title=f"Destrieux right t= {i}",
-    )
-    plt.show(block=False)
-    plt.pause(2)
-    plt.close()
-
+#%% Parcellation of TR data based on Destrieux atlas
