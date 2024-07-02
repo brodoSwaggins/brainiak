@@ -22,7 +22,12 @@ from brainiak.eventseg.event import EventSegment
 print(f"Datasets are stored in: {datasets.get_data_dirs()!r}")
 from pathlib import Path; output_dir = Path.cwd() / "images"
 output_dir.mkdir(exist_ok=True, parents=True); print(f"Output will be saved to: {output_dir}")
-
+#%%
+def getBoolMask(atlas, labels):
+    label_index = [atlas.labels.index(l) for l in labels]
+    bool_mask = reduce(lambda x, y: x + y, [(atlas.maps.get_fdata() == i) for i in label_index])
+    mask_img = nl.image.new_img_like(atlas.maps, bool_mask)
+    return mask_img, bool_mask
 #%% Example use - single subject
 if sys.platform == 'linux':
     file = r'/home/itzik/Desktop/EventBoundaries/recall_files/sherlock_recall_s1.nii'
@@ -38,11 +43,12 @@ plotting.plot_stat_map(first_TR, threshold=1)#, output_file=output_dir / "first_
 #%% Extract hippocampus using Harvard-Oxford atlas fitted to 3 mm MNI152 template
 atlas_HarvOx = datasets.fetch_atlas_harvard_oxford("sub-maxprob-thr0-2mm")
 mm3_maps = image.resample_to_img(atlas_HarvOx.maps, all_TR, interpolation="nearest")
-plotting.plot_img(atlas_HarvOx.maps, title="Harvard-Oxford atlas", colorbar=True); plt.show(block=True)
+# plotting.plot_img(atlas_HarvOx.maps, title="Harvard-Oxford atlas", colorbar=True); plt.show(block=True)
 #%%
 label = ['Right Hippocampus', 'Left Hippocampus'] ; label_index = [atlas_HarvOx.labels.index(l) for l in label]
-bool_mask = reduce(lambda x, y: x + y, [(mm3_maps.get_fdata() == i) for i in label_index])
-mask_img = nl.image.new_img_like(mm3_maps, bool_mask)
+bool_mask, mask_img = getBoolMask(atlas_HarvOx, label)
+# bool_mask = reduce(lambda x, y: x + y, [(mm3_maps.get_fdata() == i) for i in label_index])
+# mask_img = nl.image.new_img_like(mm3_maps, bool_mask)
 print(label, "mask // Shape:", bool_mask.shape, ", # voxels: ", np.sum(bool_mask))
 #%%
 hippocampi_HarvOX = masking.apply_mask([all_TR], mask_img, dtype='f', smoothing_fwhm=None, ensure_finite=True)
@@ -64,6 +70,17 @@ fsaverage = datasets.fetch_surf_fsaverage()
 atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
 all_TR_surfR = nl.surface.vol_to_surf(all_TR, fsaverage.pial_right)
 all_TR_surfL = nl.surface.vol_to_surf(all_TR, fsaverage.pial_left)
+#%% Plotting the cortical parcellation
+plotting.plot_surf_roi(
+    fsaverage["pial_left"],
+    roi_map=atlas_destrieux["map_left"],
+    hemi="left",
+    view="lateral",
+    bg_map=fsaverage["sulc_left"],
+    bg_on_data=True,
+    darkness=0.5,
+)
+plt.show(block=True)
 #%%
 imgR = nl.image.new_img_like(all_TR_surfR, atlas_destrieux["map_right"])
 imgL = nl.image.new_img_like(all_TR_surfL, atlas_destrieux["map_left"])
@@ -71,9 +88,9 @@ imgL = nl.image.new_img_like(all_TR_surfL, atlas_destrieux["map_left"])
 # maskerR = NiftiLabelsMasker(labels_img=atlas_destrieux["map_right"], standardize=True)
 #%% cortical_L = maskerL.fit_transform([all_TR])
 side = 'left'
-for i in range(1, 11, 1):
+for i in range(1, 5, 1):
     plotting.plot_surf_roi(
-        fsaverage["pial_" + side],
+        fsaverage["infl_" + side],
         roi_map=all_TR_surfL[:,i] if side == 'left' else all_TR_surfR[:,i],
         hemi=side,
         view="lateral",
@@ -82,6 +99,25 @@ for i in range(1, 11, 1):
         title=f"Destrieux {side} {i}",
     )
     plt.show(block=False)
-    plt.pause(2)
+    plt.pause(5)
     plt.close()
-#%% Parcellation of TR data based on Destrieux atlas
+#%% Focus on G_oc-temp_med-Lingual
+side = 'right'
+label = b'S_temporal_transverse' # Heschl's gyri - primary auditory cortex (Brodmann areas 41 and 42)
+label_index = [atlas_destrieux['labels'].index(label)]
+bool_mask = reduce(lambda x, y: x + y, [(atlas_destrieux["map_"+side] == i) for i in label_index])
+#%% plot on surf
+# make all_TR_surfL zero everywhere outside the mask
+plot_region = np.zeros_like(all_TR_surfR)
+plot_region[bool_mask,:] = all_TR_surfR[bool_mask,:] if side == 'right' else all_TR_surfL[bool_mask,:]
+plotting.plot_surf_roi(
+    fsaverage["pial_" + side],
+    roi_map= plot_region[:,4],
+    hemi=side,
+    view="lateral",
+    bg_map=fsaverage["sulc_"+side],
+    bg_on_data=True,
+    title=f"Destrieux {side} {label}",
+)
+plt.show(block=True)
+#%%
