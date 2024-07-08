@@ -86,11 +86,6 @@ plotting.plot_surf_roi(
     darkness=0.5,
 )
 plt.show(block=blck)
-#%%
-imgR = nl.image.new_img_like(all_TR_surfR, atlas_destrieux["map_right"])
-imgL = nl.image.new_img_like(all_TR_surfL, atlas_destrieux["map_left"])
-# maskerL = NiftiLabelsMasker(labels_img=imgL, standardize=True)
-# maskerR = NiftiLabelsMasker(labels_img=atlas_destrieux["map_right"], standardize=True)
 #%% cortical_L = maskerL.fit_transform([all_TR])
 side = 'left'
 for i in range(1, 5, 1):
@@ -104,7 +99,7 @@ for i in range(1, 5, 1):
         title=f"Destrieux {side} {i}",
     )
     plt.show(block=False)
-    plt.pause(5)
+    plt.pause(3)
     plt.close()
 #%% Focus on G_oc-temp_med-Lingual
 side = 'left'
@@ -123,18 +118,21 @@ plotting.plot_surf_roi(
     bg_map=fsaverage["sulc_"+side],
     bg_on_data=True,
     title=f"Destrieux {side} {label}",
+    cmap='plasma',
+    threshold=0.0001,
 )
+
 plt.show(block=blck)
 ############################################################################################################
 ############################################################################################################
 #%% Linear regression
-from nilearn.glm.first_level import make_first_level_design_matrix
+from nilearn.glm.first_level import make_first_level_design_matrix, run_glm
 t_r = 1.5
 slice_time_ref = 0.5
 T = all_TR_surfL.shape[-1]; time_x = (np.arange(T) + 0.5) * t_r
 
 #%%
-from nilearn.datasets import fetch_localizer_first_level
+# from nilearn.datasets import fetch_localizer_first_level
 t_r = 2.4
 slice_time_ref = 0.5
 data = fetch_localizer_first_level()
@@ -143,9 +141,56 @@ events_file = data.events
 events = pd.read_table(events_file)
 texture = nl.surface.vol_to_surf(fmri_img, fsaverage.pial_right)
 T = texture.shape[-1]; time_x = (np.arange(T) + 0.5) * t_r
-#%%
 #%% plot fmri image
 design_matrix = make_first_level_design_matrix(time_x,
                                                events=events,
                                                hrf_model='glover + derivative'
                                                )
+labels, estimates = run_glm(texture.T, design_matrix.values)
+#%%
+contrast_matrix = np.eye(design_matrix.shape[1])
+basic_contrasts = dict([(column, contrast_matrix[i])
+                        for i, column in enumerate(design_matrix.columns)])
+basic_contrasts['audio'] = (
+    basic_contrasts['audio_left_hand_button_press']
+    + basic_contrasts['audio_right_hand_button_press']
+    + basic_contrasts['audio_computation']
+    + basic_contrasts['sentence_listening'])
+
+# one contrast adding all conditions involving instructions reading
+basic_contrasts['visual'] = (
+    basic_contrasts['visual_left_hand_button_press']
+    + basic_contrasts['visual_right_hand_button_press']
+    + basic_contrasts['visual_computation']
+    + basic_contrasts['sentence_reading'])
+
+# one contrast adding all conditions involving computation
+basic_contrasts['computation'] = (basic_contrasts['visual_computation']
+                                  + basic_contrasts['audio_computation'])
+
+# one contrast adding all conditions involving sentences
+basic_contrasts['sentences'] = (basic_contrasts['sentence_listening']
+                                + basic_contrasts['sentence_reading'])
+#%%
+contrasts = ['audio', 'visual', 'computation', 'sentences', 'sentence_reading', 'sentence_listening', 'audio_computation']
+for index, contrast_id in enumerate(contrasts):
+    contrast_val = basic_contrasts[contrast_id]
+    print(f"  Contrast {index + 1:1} out of {len(contrasts)}: "
+          f"{contrast_id}, right hemisphere")
+    # compute contrast-related statistics
+    contrast = nl.glm.contrasts.compute_contrast(labels, estimates, contrast_val,
+                                stat_type='t')
+    # we present the Z-transform of the t map
+    z_score = contrast.z_score()
+    # we plot it on the surface, on the inflated fsaverage mesh,
+    # together with a suitable background to give an impression
+    # of the cortex folding.
+    plotting.plot_surf_stat_map(
+        fsaverage.infl_right, z_score, hemi='right',
+        title=contrast_id, colorbar=True,
+         bg_map=fsaverage.sulc_right, threshold=3.,
+    )
+    plt.show(block=False)
+    plt.pause(10)
+    plt.close()
+
