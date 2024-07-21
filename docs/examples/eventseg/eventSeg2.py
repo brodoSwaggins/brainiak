@@ -1,6 +1,7 @@
 import sys
 from functools import reduce
 import numpy as np
+from MDL_tools  import *
 import matplotlib
 bcke = matplotlib.get_backend()
 from matplotlib import pyplot as plt
@@ -58,7 +59,7 @@ print(label, "mask // Shape:", bool_mask.shape, ", # voxels: ", np.sum(bool_mask
 #%%
 hippocampi_HarvOX = masking.apply_mask([all_TR], mask_img, dtype='f', smoothing_fwhm=None, ensure_finite=True)
 hippocampi_HarvOX.shape # TRs x voxels
-plotting.plot_roi(mask_img, title='hippocampi, Harvard-Oxford ({} voxels)'.format(np.sum(bool_mask)), display_mode='tiled', draw_cross=False); plt.show(block=blck)
+plotting.plot_roi(mask_img, title='hippocampi, Harvard-Oxford ({} voxels)'.format(np.sum(bool_mask)), display_mode='tiled', draw_cross=False, cmap = 'viridis'); plt.show(block=blck)
 #%% Extract hippocampus using Juelich (based on Hahamy)
 atlas_juelich = datasets.fetch_atlas_juelich("maxprob-thr0-2mm")
 mm3_maps = image.resample_to_img(atlas_juelich.maps, all_TR, interpolation="nearest")
@@ -69,7 +70,7 @@ mask_img = nl.image.new_img_like(mm3_maps, bool_mask)
 print(label, "mask // Shape:", bool_mask.shape, ", # voxels: ", np.sum(bool_mask))
 hippocampi_juelich = masking.apply_mask([all_TR], mask_img, dtype='f', smoothing_fwhm=None, ensure_finite=True)
 hippocampi_juelich.shape # TRs x voxels
-plotting.plot_roi(mask_img, title='hippocampi, Juelich hist. ({} voxels)'.format(np.sum(bool_mask)), display_mode='tiled', draw_cross=False); plt.show(block=blck)
+plotting.plot_roi(mask_img, title='hippocampi, Juelich hist. ({} voxels)'.format(np.sum(bool_mask)), display_mode='tiled', draw_cross=False, cmap='viridis'); plt.show(block=blck)
 #%% Extract cortical surface areas
 fsaverage = datasets.fetch_surf_fsaverage()
 atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
@@ -132,7 +133,7 @@ slice_time_ref = 0.5
 T = all_TR_surfL.shape[-1]; time_x = (np.arange(T) + 0.5) * t_r
 
 #%%
-# from nilearn.datasets import fetch_localizer_first_level
+from nilearn.datasets import fetch_localizer_first_level
 t_r = 2.4
 slice_time_ref = 0.5
 data = fetch_localizer_first_level()
@@ -193,4 +194,80 @@ for index, contrast_id in enumerate(contrasts):
     plt.show(block=False)
     plt.pause(10)
     plt.close()
+############################################################################################################
+##### Event segmentation of narratives #####################################################################
+#%%  import fMRI data. project to cortical surface
 
+if sys.platform == 'linux':
+    file = r'/home/itzik/Desktop/EventBoundaries/recall_files/sherlock_recall_s1.nii'
+    blck = True
+else:
+    file = r'C:\Users\izika\OneDrive\Documents\ComDePri\Memory\fMRI data Project\RecallFiles_published\recall_files\sherlock_recall_s1.nii'
+    blck = False
+all_TR = image.load_img(file)
+print(all_TR.shape)
+first_TR = image.index_img(file, 0)
+print(first_TR.shape)
+fsaverage = datasets.fetch_surf_fsaverage()
+atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
+all_TR_surfR = nl.surface.vol_to_surf(all_TR, fsaverage.pial_right)
+all_TR_surfL = nl.surface.vol_to_surf(all_TR, fsaverage.pial_left)
+#%% import word embeddings
+#%% Load Kumar et al. data ("Monkey" embeddings, reduced to 50 PCs )
+dataPath = 'C:\\Users\\izika\OneDrive\Documents\ComDePri\Memory\\fMRI data Project\Kumar23Data\\'
+# dataPath = r'/home/itzik/Desktop/EventBoundaries/Data from Kumar23/'
+embeddingsData = pd.read_csv(dataPath + r'extract-embeddings-data/results/tunnel/tunnelgpt2-xl-c_1024-layer_0_pca50d.csv')
+
+# First 4 columns a are metadata (word, onset, offset, speaker), the rest are the embeddings. Separate them
+metadata = embeddingsData.iloc[:,:5]
+embeds = embeddingsData.iloc[:,5:] # time x dim
+embeds.columns = range(0,50)
+
+#%% Run MDL with multiple b values and recording where events occurred
+# For each word in embeds, save the number of times it appeared as an event boundary
+# =============================================================================
+#%% open previously saved numEB npy file
+EBdata = np.load(r'/home/itzik/PycharmProjects/EventBoundaries_deploy/numEB_monkey_narrative_.npz')
+EB_all = EBdata['EBs']; bvals = EBdata['bvals']; # tvals = EBdata['tvals'] ; segPts_all = EBdata['segPts']
+#%% Run over multiple values of parameters b and tau
+Y = embeds.values.T
+event_rep = 'const' ; sig = np.std(Y, axis=-1)
+bvals = np.arange(60, 85, 1) # such that we capture the 3rd quartile of button press ratio from the data
+tvals = np.arange(25,530,100)
+#%%
+EB_all = np.zeros((len(bvals), Y.shape[-1]))
+segPts_all = np.zeros((len(bvals), len(tvals), Y.shape[-1]))
+stime = time.time()
+for i, b in enumerate(bvals):
+    for j, tau in enumerate(tvals):
+        print( "b=",b, "tau=",tau, ".........")
+        sstime = time.time()
+        # EBs, MDL, seg_points, seg_offsets = MDL_tau(Y, tau, b, sig, rounded=True, v=False)
+        EBs, MDL, seg_points = MDL_tau_narrative(Y, tau, b, sig, rounded=False, updateSig=False, v=False)
+        EB = EBs[-1]
+        for k in EB:
+            EB_all[i, j, k] += 1
+        for k in seg_points:
+            segPts_all[i, j, k] += 1
+        print("                   ====>time: %f score: %f" % (time.time()-sstime, MDL[-1]))
+print("total time: %f" % (time.time()-stime))
+#%% save params and results
+np.savez('numEB_monkey_narrative_updateSigma', EBs=EB_all, segPts = segPts_all, bvals=bvals, tvals=tvals)
+
+
+#%% Sum over b and tau to get the number of times each word was an event boundary
+numEB_total = EB_all.sum(axis=(0, 1))
+# =============================================================================
+# =============================================================================
+#%% show numEB_total hsitogram
+# exclude zeros
+numEB_pos = numEB_total[numEB_total>0]
+plt.figure()
+plt.hist(numEB_pos, bins=int(np.max(numEB_total)))
+plt.axvline(numEB[:,:,0].size, color='r', linestyle='--', label='max (all runs)')
+plt.annotate('max (all runs)', (numEB[:,:,0].size, 500), fontsize=12, rotation=90)
+plt.xlabel('Number of runs a word was an event boundary')
+plt.ylabel('Number of words')
+plt.title('Histogram of candidate EBs (#= %d)' % len(numEB_pos))
+plt.show()
+figsToPDF.append(plt.gcf())
