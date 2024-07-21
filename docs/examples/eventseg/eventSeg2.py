@@ -213,10 +213,11 @@ atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
 all_TR_surfR = nl.surface.vol_to_surf(all_TR, fsaverage.pial_right)
 all_TR_surfL = nl.surface.vol_to_surf(all_TR, fsaverage.pial_left)
 #%% import word embeddings
-#%% Load Kumar et al. data ("Monkey" embeddings, reduced to 50 PCs )
-dataPath = 'C:\\Users\\izika\OneDrive\Documents\ComDePri\Memory\\fMRI data Project\Kumar23Data\\'
-# dataPath = r'/home/itzik/Desktop/EventBoundaries/Data from Kumar23/'
-embeddingsData = pd.read_csv(dataPath + r'extract-embeddings-data/results/tunnel/tunnelgpt2-xl-c_1024-layer_0_pca50d.csv')
+#%% Load Kumar et al. data ("tunnel" embeddings, reduced to 50 PCs )
+# dataPath = 'C:\\Users\\izika\OneDrive\Documents\ComDePri\Memory\\fMRI data Project\Kumar23Data\\'
+dataPath = r'/home/itzik/Desktop/EventBoundaries/Data from Kumar23/'
+# embeddingsData = pd.read_csv(dataPath + r'extract-embeddings-data/results/tunnel/tunnelgpt2-xl-c_1024-layer_0_pca50d.csv')
+embeddingsData = pd.read_csv(dataPath + r'extract-embeddings-data/results/pieman/piemangpt2-xl-c_1024-layer_0_pca50d.csv')
 
 # First 4 columns a are metadata (word, onset, offset, speaker), the rest are the embeddings. Separate them
 metadata = embeddingsData.iloc[:,:5]
@@ -234,6 +235,17 @@ Y = embeds.values.T
 event_rep = 'const' ; sig = np.std(Y, axis=-1)
 bvals = np.arange(60, 85, 1) # such that we capture the 3rd quartile of button press ratio from the data
 tvals = np.arange(25,530,100)
+#%% Run aposteriori MDL
+EB, MDL = EB_split(Y, b=120, rep='const', sig=sig)
+#%% Print story with EB in Capital letters
+for i, w in enumerate(metadata['0']):
+    if i in EB :
+        print(w.upper(), end=' || ')
+    else:
+        print(w, end=' ')
+    if i % 20 == 19:
+        print('\n')
+print()
 #%%
 EB_all = np.zeros((len(bvals), Y.shape[-1]))
 segPts_all = np.zeros((len(bvals), len(tvals), Y.shape[-1]))
