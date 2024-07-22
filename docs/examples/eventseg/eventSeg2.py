@@ -246,7 +246,7 @@ for i, w in enumerate(metadata['0']):
     if i % 20 == 19:
         print('\n')
 print()
-#%%
+#%% Running with tau:
 EB_all = np.zeros((len(bvals), Y.shape[-1]))
 segPts_all = np.zeros((len(bvals), len(tvals), Y.shape[-1]))
 stime = time.time()
@@ -271,15 +271,14 @@ np.savez('numEB_monkey_narrative_updateSigma', EBs=EB_all, segPts = segPts_all, 
 numEB_total = EB_all.sum(axis=(0, 1))
 # =============================================================================
 # =============================================================================
-#%% show numEB_total hsitogram
-# exclude zeros
-numEB_pos = numEB_total[numEB_total>0]
-plt.figure()
-plt.hist(numEB_pos, bins=int(np.max(numEB_total)))
-plt.axvline(numEB[:,:,0].size, color='r', linestyle='--', label='max (all runs)')
-plt.annotate('max (all runs)', (numEB[:,:,0].size, 500), fontsize=12, rotation=90)
-plt.xlabel('Number of runs a word was an event boundary')
-plt.ylabel('Number of words')
-plt.title('Histogram of candidate EBs (#= %d)' % len(numEB_pos))
-plt.show()
-figsToPDF.append(plt.gcf())
+#%% load Narrative DS partcipants tsv
+pathDS = r'/home/itzik/Desktop/EventBoundaries/Narratives_DSs'
+participants = pd.read_csv(pathDS + r'/participants.tsv', sep='\t')
+task = 'pieman'
+# extract rows where 'task' field contains 'pieman', exclude 'piemanpni'
+task_participants = participants[participants.task.str.contains(task) & ~participants.task.str.contains('piemanpni')]
+#%%
+pathDS = r'smb://132.64.186.144/hartlabnas/personal_folders/isaac.ash/OptCodingEB/narrative_DS/ds002345-download'
+excluded = ['sub-001', 'sub-013', 'sub-014', 'sub-021', 'sub-022', 'sub-038', 'sub-056', 'sub-068', 'sub-069']
+folders = [f for f in task_participants.participant_id.values if f not in excluded]
+paths = [pathDS + '/' + f +'/func/' + f + '_task-pieman_bold.nii.gz' for f in folders]
