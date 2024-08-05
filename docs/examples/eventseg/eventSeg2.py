@@ -1,3 +1,4 @@
+import wesanderson as wa
 import sys
 from functools import reduce
 import numpy as np
@@ -213,8 +214,9 @@ atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
 all_TR_surfR = nl.surface.vol_to_surf(all_TR, fsaverage.pial_right)
 all_TR_surfL = nl.surface.vol_to_surf(all_TR, fsaverage.pial_left)
 #%% import word embeddings
-#%% Load Kumar et al. data ("tunnel" embeddings, reduced to 50 PCs )
+#%% Load Kumar et al. data ("Pieman" embeddings, reduced to 50 PCs )
 # dataPath = 'C:\\Users\\izika\OneDrive\Documents\ComDePri\Memory\\fMRI data Project\Kumar23Data\\'
+task = 'pieman'
 dataPath = r'/home/itzik/Desktop/EventBoundaries/Data from Kumar23/'
 # embeddingsData = pd.read_csv(dataPath + r'extract-embeddings-data/results/tunnel/tunnelgpt2-xl-c_1024-layer_0_pca50d.csv')
 embeddingsData = pd.read_csv(dataPath + r'extract-embeddings-data/results/pieman/piemangpt2-xl-c_1024-layer_0_pca50d.csv')
@@ -224,8 +226,8 @@ metadata = embeddingsData.iloc[:,:5]
 embeds = embeddingsData.iloc[:,5:] # time x dim
 embeds.columns = range(0,50)
 
-#%% Run MDL with multiple b values and recording where events occurred
-# For each word in embeds, save the number of times it appeared as an event boundary
+#%% Run MDL with multiple b values and record where events occurred
+# For each word in embeds, save the number of conditions for which it appeared as an event boundary
 # =============================================================================
 #%% open previously saved numEB npy file
 EBdata = np.load(r'/home/itzik/PycharmProjects/EventBoundaries_deploy/numEB_monkey_narrative_.npz')
@@ -233,10 +235,21 @@ EB_all = EBdata['EBs']; bvals = EBdata['bvals']; # tvals = EBdata['tvals'] ; seg
 #%% Run over multiple values of parameters b and tau
 Y = embeds.values.T
 event_rep = 'const' ; sig = np.std(Y, axis=-1)
-bvals = np.arange(60, 85, 1) # such that we capture the 3rd quartile of button press ratio from the data
+bvals = np.arange(90, 131, 5) # such that we capture the 3rd quartile of button press ratio from the data
 tvals = np.arange(25,530,100)
 #%% Run aposteriori MDL
-EB, MDL = EB_split(Y, b=120, rep='const', sig=sig)
+EB_all = np.zeros((len(bvals), Y.shape[-1]))
+stime = time.time()
+for i, b in enumerate(bvals):
+    print( "b=",b,".........")
+    sstime = time.time()
+    # EBs, MDL, seg_points, seg_offsets = MDL_tau(Y, tau, b, sig, rounded=True, v=False)
+    EB, MDL = EB_split(Y, b=b, rep='const', sig=sig)
+    for k in EB:
+        EB_all[i, k] += 1
+    print("                   ====>time: %f score: %f" % (time.time()-sstime, MDL))
+print("total time: %f" % (time.time()-stime))
+
 #%% Print story with EB in Capital letters
 for i, w in enumerate(metadata['0']):
     if i in EB :
@@ -247,34 +260,46 @@ for i, w in enumerate(metadata['0']):
         print('\n')
 print()
 #%% Running with tau:
-EB_all = np.zeros((len(bvals), Y.shape[-1]))
-segPts_all = np.zeros((len(bvals), len(tvals), Y.shape[-1]))
-stime = time.time()
-for i, b in enumerate(bvals):
-    for j, tau in enumerate(tvals):
-        print( "b=",b, "tau=",tau, ".........")
-        sstime = time.time()
-        # EBs, MDL, seg_points, seg_offsets = MDL_tau(Y, tau, b, sig, rounded=True, v=False)
-        EBs, MDL, seg_points = MDL_tau_narrative(Y, tau, b, sig, rounded=False, updateSig=False, v=False)
-        EB = EBs[-1]
-        for k in EB:
-            EB_all[i, j, k] += 1
-        for k in seg_points:
-            segPts_all[i, j, k] += 1
-        print("                   ====>time: %f score: %f" % (time.time()-sstime, MDL[-1]))
-print("total time: %f" % (time.time()-stime))
+# EB_all = np.zeros((len(bvals), Y.shape[-1]))
+# segPts_all = np.zeros((len(bvals), len(tvals), Y.shape[-1]))
+# stime = time.time()
+# for i, b in enumerate(bvals):
+#     for j, tau in enumerate(tvals):
+#         print( "b=",b, "tau=",tau, ".........")
+#         sstime = time.time()
+#         # EBs, MDL, seg_points, seg_offsets = MDL_tau(Y, tau, b, sig, rounded=True, v=False)
+#         EBs, MDL, seg_points = MDL_tau_narrative(Y, tau, b, sig, rounded=False, updateSig=False, v=False)
+#         EB = EBs[-1]
+#         for k in EB:
+#             EB_all[i, j, k] += 1
+#         for k in seg_points:
+#             segPts_all[i, j, k] += 1
+#         print("                   ====>time: %f score: %f" % (time.time()-sstime, MDL[-1]))
+# print("total time: %f" % (time.time()-stime))
 #%% save params and results
-np.savez('numEB_monkey_narrative_updateSigma', EBs=EB_all, segPts = segPts_all, bvals=bvals, tvals=tvals)
+np.savez('mriEB_'+task, EBs=EB_all, bvals=bvals)
+#%% Plot EB hierarchy
+fig = plt.figure()
+title_str = task
+waxis = np.arange(0, len(EB_all.T))
+cc = wa.color_palettes['Darjeeling Limited'][0]
+for i,b in enumerate(bvals):
+    bndrs = np.where(EB_all[i])
+    db = (bvals[1]-bvals[0])/2
+    plt.vlines(bndrs, b-db, b+db, colors=cc[i % len(cc)], linewidth=1)
+    gran = int(np.sum(EB_all[i]))
+    plt.text(0, b, f'{gran}', color=cc[i % len(cc)], fontsize=8)
+plt.ylabel('b value'); plt.xlabel('Word index'); plt.yticks(bvals)
+plt.title('Event boundaries hierarchy over b values, '+title_str)
+plt.show(block=True)
 
-
-#%% Sum over b and tau to get the number of times each word was an event boundary
-numEB_total = EB_all.sum(axis=(0, 1))
 # =============================================================================
 # =============================================================================
+#%%
 #%% load Narrative DS partcipants tsv
 pathDS = r'/home/itzik/Desktop/EventBoundaries/Narratives_DSs'
 participants = pd.read_csv(pathDS + r'/participants.tsv', sep='\t')
-task = 'pieman'
+
 # extract rows where 'task' field contains 'pieman', exclude 'piemanpni'
 task_participants = participants[participants.task.str.contains(task) & ~participants.task.str.contains('piemanpni')]
 #%%
@@ -282,3 +307,8 @@ pathDS = r'smb://132.64.186.144/hartlabnas/personal_folders/isaac.ash/OptCodingE
 excluded = ['sub-001', 'sub-013', 'sub-014', 'sub-021', 'sub-022', 'sub-038', 'sub-056', 'sub-068', 'sub-069']
 folders = [f for f in task_participants.participant_id.values if f not in excluded]
 paths = [pathDS + '/' + f +'/func/' + f + '_task-pieman_bold.nii.gz' for f in folders]
+files = [nl.image.load_img(p) for p in paths]
+## todo ............. acces the preprocessed data
+#%% Run HMM on the data. First, use average to decide best granularity per region
+
+
