@@ -21,7 +21,8 @@ import pandas as pd
 import nilearn as nl
 from nilearn import plotting, image, datasets, masking
 from nilearn.maskers import NiftiLabelsMasker
-from brainiak.eventseg.event import EventSegment
+# from brainiak.eventseg.event import EventSegment
+import brainiak.eventseg.event
 print(f"Datasets are stored in: {datasets.get_data_dirs()!r}")
 from pathlib import Path; output_dir = Path.cwd() / "images"
 output_dir.mkdir(exist_ok=True, parents=True); print(f"Output will be saved to: {output_dir}")
@@ -105,7 +106,7 @@ for i in range(1, 5, 1):
     plt.close()
 #%% Focus on G_oc-temp_med-Lingual
 side = 'left'
-label =  b'G_temp_sup-Lateral' # b'S_temporal_transverse' # Heschl's gyri - primary auditory cortex (Brodmann areas 41 and 42)
+label =   b'G_pariet_inf-Angular'#b'G_temp_sup-Lateral' # b'S_temporal_transverse' # Heschl's gyri - primary auditory cortex (Brodmann areas 41 and 42)
 label_index = [atlas_destrieux['labels'].index(label)]
 bool_mask = reduce(lambda x, y: x + y, [(atlas_destrieux["map_"+side] == i) for i in label_index])
 #%% plot on surf
@@ -310,5 +311,45 @@ paths = [pathDS + '/' + f +'/func/' + f + '_task-pieman_bold.nii.gz' for f in fo
 files = [nl.image.load_img(p) for p in paths]
 ## todo ............. acces the preprocessed data
 #%% Run HMM on the data. First, use average to decide best granularity per region
-
+side = 'left'
+# downsample the TR data into 76 cortical regions
+regions = np.zeros((len(atlas_destrieux['labels']),all_TR.shape[-1]))
+all_TR_avg = np.zeros_like(all_TR_surfR)
+for i, label in enumerate(atlas_destrieux['labels']):
+    if label == b'Unknown':
+        continue
+    bool_mask = reduce(lambda x, y: x + y, [(atlas_destrieux["map_"+side] == i)])
+    print(f"Region {label} has {np.sum(bool_mask)} voxels")
+    regions[i,:] = np.mean(all_TR_surfL[bool_mask,:], axis=0) if side == 'left' else np.mean(all_TR_surfR[bool_mask,:], axis=0)
+    all_TR_avg[bool_mask,:] = regions[i,:]
+regions = regions[1:,:]
+#%% plot region avergaes on cortical surface
+for i in range(1, 3, 1):
+    plotting.plot_surf_roi(
+        fsaverage["pial_" + side],
+        roi_map=all_TR_avg[:,i],
+        hemi=side,
+        view="lateral",
+        bg_map=fsaverage["sulc_" + side],
+        bg_on_data=True,
+        title=f"TR {i}",
+        cmap='plasma',
+        threshold=0.0001,
+    )
+    plt.show(block=False)
+    plt.pause(3)
+    plt.close()
+#%%
+label =   b'G_pariet_inf-Angular'#b'G_temp_sup-Lateral' # b'S_temporal_transverse' # Heschl's gyri - primary auditory cortex (Brodmann areas 41 and 42)
+label_index = atlas_destrieux['labels'].index(label)
+exRegion = regions[label_index+1,:]#.reshape(1,-1)
+# for n in range(30, 100, 10):
+#%%
+n = 29
+ev = brainiak.eventseg.event.EventSegment(n)
+ev.fit(exRegion.T)
+print(f"Number of regions: {n}, log likelihood: {ev.ll_[-1]}")
+# ev = brainiak.eventseg.event.EventSegment(70)
+# ev.fit(regions.T)
+#%%
 
