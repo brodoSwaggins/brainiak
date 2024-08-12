@@ -324,7 +324,7 @@ for i, label in enumerate(atlas_destrieux['labels']):
     all_TR_avg[bool_mask,:] = regions[i,:]
 regions = regions[1:,:]
 #%% plot region avergaes on cortical surface
-for i in range(1, 3, 1):
+for i in range(1, 5, 1):
     plotting.plot_surf_roi(
         fsaverage["pial_" + side],
         roi_map=all_TR_avg[:,i],
@@ -341,14 +341,16 @@ for i in range(1, 3, 1):
     plt.close()
 #%%
 label =   b'G_pariet_inf-Angular'#b'G_temp_sup-Lateral' # b'S_temporal_transverse' # Heschl's gyri - primary auditory cortex (Brodmann areas 41 and 42)
-label_index = atlas_destrieux['labels'].index(label)
-exRegion = regions[label_index+1,:]#.reshape(1,-1)
-# for n in range(30, 100, 10):
+label_index = [atlas_destrieux['labels'].index(label)]
+regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
+# exRegion = regions[label_index:label_index+5,:]#.reshape(1,-1)
+exRegion = all_TR_surfL[regionInd,:] if side == 'left' else all_TR_surfR[regionInd,:]
+
 #%%
-n = 29
-ev = brainiak.eventseg.event.EventSegment(n)
-ev.fit(exRegion.T)
-print(f"Number of regions: {n}, log likelihood: {ev.ll_[-1]}")
+for n in range(30, 100, 10):
+    ev = brainiak.eventseg.event.EventSegment(n)
+    ev.fit(exRegion.T)
+    print(f"Number of regions: {n}, log likelihood: {ev.ll_[-1]}")
 # ev = brainiak.eventseg.event.EventSegment(70)
 # ev.fit(regions.T)
 #%%
