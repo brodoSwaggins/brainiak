@@ -3,6 +3,7 @@ import sys
 from functools import reduce
 import numpy as np
 from MDL_tools  import *
+from scipy.stats import pearsonr
 import matplotlib
 bcke = matplotlib.get_backend()
 from matplotlib import pyplot as plt
@@ -203,8 +204,10 @@ for index, contrast_id in enumerate(contrasts):
 if sys.platform == 'linux':
     file = r'/home/itzik/Desktop/EventBoundaries/recall_files/sherlock_recall_s1.nii'
     blck = True
+    dataPath = r'/home/itzik/Desktop/EventBoundaries/Data from Kumar23/'
 else:
     file = r'C:\Users\izika\OneDrive\Documents\ComDePri\Memory\fMRI data Project\RecallFiles_published\recall_files\sherlock_recall_s1.nii'
+    dataPath = r'C:\\Users\\izika\OneDrive\Documents\ComDePri\Memory\\fMRI data Project\Kumar23Data\\'
     blck = False
 all_TR = image.load_img(file)
 print(all_TR.shape)
@@ -215,12 +218,8 @@ atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
 all_TR_surfR = nl.surface.vol_to_surf(all_TR, fsaverage.pial_right)
 all_TR_surfL = nl.surface.vol_to_surf(all_TR, fsaverage.pial_left)
 #%% import word embeddings
-#%% Load Kumar et al. data ("Pieman" embeddings, reduced to 50 PCs )
-# dataPath = 'C:\\Users\\izika\OneDrive\Documents\ComDePri\Memory\\fMRI data Project\Kumar23Data\\'
-task = 'pieman'
-dataPath = r'/home/itzik/Desktop/EventBoundaries/Data from Kumar23/'
-# embeddingsData = pd.read_csv(dataPath + r'extract-embeddings-data/results/tunnel/tunnelgpt2-xl-c_1024-layer_0_pca50d.csv')
-embeddingsData = pd.read_csv(dataPath + r'extract-embeddings-data/results/pieman/piemangpt2-xl-c_1024-layer_0_pca50d.csv')
+task = 'milkyway'
+embeddingsData = pd.read_csv(dataPath + r'extract-embeddings-data\results\{1}\milkywaygpt2-xl-c_1024-layer_0_pca50d.csv'.format(task, task))
 
 # First 4 columns a are metadata (word, onset, offset, speaker), the rest are the embeddings. Separate them
 metadata = embeddingsData.iloc[:,:5]
@@ -310,6 +309,118 @@ folders = [f for f in task_participants.participant_id.values if f not in exclud
 paths = [pathDS + '/' + f +'/func/' + f + '_task-pieman_bold.nii.gz' for f in folders]
 files = [nl.image.load_img(p) for p in paths]
 ## todo ............. acces the preprocessed data
+#%% Load MilkyWay preprocessed data
+if sys.platform == 'linux':
+    pathDS = r'smb://132.64.186.144/hartlabnas/personal_folders/isaac.ash/OptCodingEB/narrative_DS/ds002345-download'
+else:
+    pathDS = r'C:\Users\izika\OneDrive\Documents\Hebrew U\Modeling of cognition\brainiak\docs\examples\eventseg\4\milkyway_vodka\Milkyway\niftis_preprocessed'
+file_names = [pathDS + '/' + f for f in os.listdir(pathDS) if f.endswith('.nii') and not f.startswith('.')]
+files = [nl.image.load_img(f) for f in file_names]
+#%% Let's look at the first subject
+ff = file_names[1]
+masker = nl.maskers.NiftiMasker(standardize=True)
+ffz = masker.fit_transform(ff)
+ffz = masker.inverse_transform(ffz)
+#%%
+all_TR = ffz
+print(all_TR.shape)
+first_TR = image.index_img(ffz, 0)
+print(first_TR.shape)
+plotting.plot_stat_map(first_TR, threshold=1)#, output_file=output_dir / "first_TR.png")
+#%% Z score all data
+masker = nl.maskers.MultiNiftiMasker(standardize=True)
+BOLD = masker.fit_transform(file_names)
+BOLD = masker.inverse_transform(BOLD)
+#%% First subject the same?
+plotting.plot_stat_map(image.index_img(BOLD[1], 10), threshold=1)#, output_file=output_dir / "first_TR.png")
+#%% Project to cortical surface
+side = 'left'
+fsaverage = datasets.fetch_surf_fsaverage()
+atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
+surfL = [nl.surface.vol_to_surf(s, fsaverage.pial_left) for s in BOLD]
+surfR = [nl.surface.vol_to_surf(s, fsaverage.pial_right) for s in BOLD]
+#%% plot on surf
+for i in range(1, 4, 1):
+    tr = i*10
+    plotting.plot_surf_roi(
+        fsaverage["pial_" + side],
+        roi_map=surfL[0][:,tr],
+        hemi=side,
+        view="lateral",
+        bg_map=fsaverage["sulc_" + side],
+        bg_on_data=True,
+        title=f"TR {tr}",
+        #cmap='plasma',
+        threshold=0.0001,
+    )
+    plt.show(block=False)
+    plt.pause(3)
+    plt.close()
+
+#%%  Fit Cortical with held-out subjects, focus on one region
+label =   b'G_pariet_inf-Angular'#b'G_temp_sup-Lateral' # b'S_temporal_transverse' # Heschl's gyri - primary auditory cortex (Brodmann areas 41 and 42)
+# label = b'S_temporal_transverse'
+label_index = [atlas_destrieux['labels'].index(label)]
+regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
+#show region on surface
+plot_region = np.zeros_like(surfR[0])
+plot_region[regionInd,:] = surfR[0][regionInd,:]
+plotting.plot_surf_roi(
+    fsaverage["pial_" + side],
+    roi_map= plot_region[:,14],
+    hemi=side,
+    view="lateral",
+    bg_map=fsaverage["sulc_"+side],
+    bg_on_data=True,
+    title=f"Destrieux {side} {label}",
+    cmap='plasma',
+    threshold=0.0001,
+)
+#%%
+all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
+all_region = all_surf[:,regionInd,:]
+w = 5  # window size
+nEvents = 60
+nPerm = 1000 # number of random permutations
+nSubj = len(files) ; nTR = all_region.shape[2]
+within_across = np.zeros((nSubj, nPerm+1))
+for left_out in range(nSubj):
+    # Fit to all but one subject
+    ev = brainiak.eventseg.event.EventSegment(nEvents)
+    ev.fit(all_region[np.arange(nSubj) != left_out,:,:].mean(0).T)
+    events = np.argmax(ev.segments_[0], axis=1)
+
+    # Compute correlations separated by w in time
+    corrs = np.zeros(nTR-w)
+    for t in range(nTR-w):
+        corrs[t] = pearsonr(all_region[left_out,:,t],all_region[left_out,:,t+w])[0]
+    _, event_lengths = np.unique(events, return_counts=True)
+
+    # Compute within vs across boundary correlations, for real and permuted bounds
+    np.random.seed(0)
+    for p in range(nPerm+1):
+        # p=0 is the real events
+        within = corrs[events[:-w] == events[w:]].mean()
+        across = corrs[events[:-w] != events[w:]].mean()
+        within_across[left_out, p] = within - across
+        # This makes the next itertion run over a permuted version of the event lengths
+        perm_lengths = np.random.permutation(event_lengths)
+        events = np.zeros(nTR, dtype=int)
+        events[np.cumsum(perm_lengths[:-1])] = 1
+        events = np.cumsum(events)
+    print('Subj ' + str(left_out+1) + ': WvsA = ' + str(within_across[left_out,0]))
+#%%
+plt.figure(figsize=(1.5,5))
+plt.violinplot(within_across[:,1:].mean(0), showextrema=True) # permuted
+plt.scatter(1, within_across[:,0].mean(0)) # real
+plt.gca().xaxis.set_visible(False)
+plt.ylabel('Within vs across boundary correlation')
+plt.title('{} {} :\nHeld-out subject HMM with {} events ({} perms)'.format(side, label, nEvents, nPerm))
+#%%
+fsaverage = datasets.fetch_surf_fsaverage()
+atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
+all_TR_surfR = nl.surface.vol_to_surf(all_TR, fsaverage.pial_right)
+all_TR_surfL = nl.surface.vol_to_surf(all_TR, fsaverage.pial_left)
 #%% Run HMM on the data. First, use average to decide best granularity per region
 side = 'left'
 # downsample the TR data into 76 cortical regions
@@ -324,10 +435,10 @@ for i, label in enumerate(atlas_destrieux['labels']):
     all_TR_avg[bool_mask,:] = regions[i,:]
 regions = regions[1:,:]
 #%% plot region avergaes on cortical surface
-for i in range(1, 5, 1):
+for i in range(1, 4, 1):
     plotting.plot_surf_roi(
         fsaverage["pial_" + side],
-        roi_map=all_TR_avg[:,i],
+        roi_map=all_TR_surfL[:,i*10],
         hemi=side,
         view="lateral",
         bg_map=fsaverage["sulc_" + side],
@@ -343,13 +454,16 @@ for i in range(1, 5, 1):
 label =   b'G_pariet_inf-Angular'#b'G_temp_sup-Lateral' # b'S_temporal_transverse' # Heschl's gyri - primary auditory cortex (Brodmann areas 41 and 42)
 label_index = [atlas_destrieux['labels'].index(label)]
 regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
-# exRegion = regions[label_index:label_index+5,:]#.reshape(1,-1)
+# exRegion = regions[label_index,:].reshape(1,-1)
 exRegion = all_TR_surfL[regionInd,:] if side == 'left' else all_TR_surfR[regionInd,:]
 
 #%%
-for n in range(30, 100, 10):
+numEvents = np.arange(30, 100, 10)
+segs = []
+for n in numEvents:
     ev = brainiak.eventseg.event.EventSegment(n)
     ev.fit(exRegion.T)
+    segs.append(ev)
     print(f"Number of regions: {n}, log likelihood: {ev.ll_[-1]}")
 # ev = brainiak.eventseg.event.EventSegment(70)
 # ev.fit(regions.T)
