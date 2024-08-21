@@ -92,7 +92,7 @@ def within_across_corr(D, nEvents, w=5, nPerm=1000, verbose=0, rsd = 0):
 #%% Example use - single subject
 if sys.platform == 'linux':
     file = r'/home/itzik/Desktop/EventBoundaries/recall_files/sherlock_recall_s1.nii'
-    blck = True
+    blck = False
 else:
     file = r'C:\Users\izika\OneDrive\Documents\ComDePri\Memory\fMRI data Project\RecallFiles_published\recall_files\sherlock_recall_s1.nii'
     blck = False
@@ -106,7 +106,7 @@ plotting.plot_img(image.smooth_img(first_TR, fwhm=3), threshold=1); plt.show(blo
 #%% Extract hippocampus using Harvard-Oxford atlas fitted to 3 mm MNI152 template
 atlas_HarvOx = datasets.fetch_atlas_harvard_oxford("sub-maxprob-thr0-2mm")
 mm3_maps = image.resample_to_img(atlas_HarvOx.maps, all_TR, interpolation="nearest")
-plotting.plot_img(atlas_HarvOx.maps, title="Harvard-Oxford atlas", colorbar=True); plt.show(block=blck)
+plotting.plot_img(atlas_HarvOx.maps, title="Harvard-Oxford atlas", colorbar=True); plt.show(block=False)
 #%%
 label = ['Right Hippocampus', 'Left Hippocampus'] ; label_index = [atlas_HarvOx.labels.index(l) for l in label]
 mask_img, bool_mask = getBoolMask(atlas_HarvOx, label, mm3_maps)
@@ -257,7 +257,7 @@ for index, contrast_id in enumerate(contrasts):
 
 if sys.platform == 'linux':
     file = r'/home/itzik/Desktop/EventBoundaries/recall_files/sherlock_recall_s1.nii'
-    blck = True
+    blck = False
     dataPath = r'/home/itzik/Desktop/EventBoundaries/Data from Kumar23/'
 else:
     file = r'C:\Users\izika\OneDrive\Documents\ComDePri\Memory\fMRI data Project\RecallFiles_published\recall_files\sherlock_recall_s1.nii'
@@ -415,7 +415,7 @@ for i in range(1, 4, 1):
 
 #%%  Fit Cortical with held-out subjects, focus on one region
 label =   b'G_pariet_inf-Angular'#b'G_temp_sup-Lateral' # b'S_temporal_transverse' # Heschl's gyri - primary auditory cortex (Brodmann areas 41 and 42)
-# label = b'S_temporal_transverse'
+label = b'S_temporal_transverse'
 label_index = [atlas_destrieux['labels'].index(label)]
 regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
 #show region on surface
@@ -436,57 +436,44 @@ plt.show(block=blck)
 #%% Find the best numbr of events for the region
 all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
 all_region = all_surf[:,regionInd,:]
-num_events = np.arange(2, 50, 1)
+num_events = np.arange(32, 42, 1)
 score = [] ; nPerm = 1000 ; w = 5 ; nSubj = len(files)
 within_across_all = np.zeros((len(num_events),nSubj, nPerm+1))
 for i,nEvents in enumerate(num_events):
     within_across_all[i] = within_across_corr(all_region, nEvents, w, nPerm, verbose=0)
     score.append(within_across_all[i,:,0].mean())
     print(f"Number of regions: {nEvents}, score: {score[-1]}")
-#%% plot the results
-plt.plot(num_events, score); plt.show(block = blck)
-
-#%%
-all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
-all_region = all_surf[:,regionInd,:]
-w = 5  # window size
-nEvents = 20
-nPerm = 1000 # number of random permutations
-nSubj = len(files) ; nTR = all_region.shape[2]
-within_across = np.zeros((nSubj, nPerm+1))
-for left_out in range(nSubj):
-    # Fit to all but one subject
-    ev = brainiak.eventseg.event.EventSegment(nEvents)
-    ev.fit(all_region[np.arange(nSubj) != left_out,:,:].mean(0).T)
-    events = np.argmax(ev.segments_[0], axis=1)
-
-    # Compute correlations separated by w in time
-    corrs = np.zeros(nTR-w)
-    for t in range(nTR-w):
-        corrs[t] = pearsonr(all_region[left_out,:,t],all_region[left_out,:,t+w])[0]
-    _, event_lengths = np.unique(events, return_counts=True)
-
-    # Compute within vs across boundary correlations, for real and permuted bounds
-    np.random.seed(0)
-    for p in range(nPerm+1):
-        # p=0 is the real events
-        within = corrs[events[:-w] == events[w:]].mean()
-        across = corrs[events[:-w] != events[w:]].mean()
-        within_across[left_out, p] = within - across
-        # This makes the next itertion run over a permuted version of the event lengths
-        perm_lengths = np.random.permutation(event_lengths)
-        events = np.zeros(nTR, dtype=int)
-        events[np.cumsum(perm_lengths[:-1])] = 1
-        events = np.cumsum(events)
-    print('Subj ' + str(left_out+1) + ': WvsA = ' + str(within_across[left_out,0]))
-#%%
+fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+plt.plot(num_events, score, marker='o', color='black'); plt.title('num of events comparison, {}'.format(label))
+plt.xlabel('Number of events'); plt.ylabel('mean(within-across) correlation'); ax.set_xticks(num_events)
+plt.axhline(np.max(score), color='black', linestyle='--', linewidth=0.5)
+plt.show(block = blck)
+#%% For the best number of events, violin plot of within-across correlation
+best_ind = np.argmax(score)
 plt.figure(figsize=(1.5,5))
-plt.violinplot(within_across[:,1:].mean(0), showextrema=True) # permuted
-plt.scatter(1, within_across[:,0].mean(0)) # real
+plt.violinplot(within_across_all[best_ind,:,1:].mean(0), showextrema=True) # permuted
+plt.scatter(1, within_across_all[best_ind,:,0].mean(0)) # real
 plt.gca().xaxis.set_visible(False)
 plt.ylabel('Within vs across boundary correlation')
-plt.title('{} {} :\nHeld-out subject HMM with {} events ({} perms)'.format(side, label, nEvents, nPerm))
+plt.title('{} {} :\nHeld-out subject HMM with {} events ({} perms)'.format(side, label, num_events[best_ind], nPerm))
 plt.show(block = blck)
+#%% Loop over all cortical regions
+num_events = np.arange(2, 50, 1)
+HMMscorePerRegion= []
+nPerm = 1000 ; w = 5 ; nSubj = len(files)
+for r in range(1, len(atlas_destrieux['labels']), 1):
+    label = atlas_destrieux['labels'][r]
+    regionInd = np.where(atlas_destrieux["map_"+side] == r)[0]
+    all_region = all_surf[:,regionInd,:]
+    score = [] ; within_across_all = np.zeros((len(num_events),nSubj, nPerm+1)) ; best_ind = 0
+    for i,nEvents in enumerate(num_events):
+        within_across_all[i] = within_across_corr(all_region, nEvents, w, nPerm, verbose=0)
+        score = within_across_all[i,:,0].mean()
+        print(f"Region {r}: {label}, number of regions: {nEvents}, score: {score}")
+    HMMscorePerRegion.append(within_across_all)
+#%% SAve the results
+np.savez('HMMscorePerRegion_left', HMMscorePerRegion=HMMscorePerRegion)
+
 #%%
 fsaverage = datasets.fetch_surf_fsaverage()
 atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
