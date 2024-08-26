@@ -29,50 +29,60 @@ import tqdm
 from scipy import stats
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from lcs import lcs
+# from lcs import lcs
 #%%
 parser = argparse.ArgumentParser()
-parser.add_argument('--model-name', type=str, required=True)
-parser.add_argument('--datum-file', type=str, required=True)
-parser.add_argument('--sentence-file', type=str, required=True)
-parser.add_argument('--story-name', type=str, required=True)
-parser.add_argument('--context-length', type=int)
+parser.add_argument('--model-name', type=str, required=False, default='gpt2-xl')
+# parser.add_argument('--datum-file', type=str, required=True)
+parser.add_argument('--sentence-file', type=str, required=False, default='milkyway_transcript.txt')
+parser.add_argument('--story-name', type=str, required=False, default='milkyway')
+parser.add_argument('--context-length', type=int, default=1024)
 parser.add_argument('--suffix', type=str, default='')
 parser.add_argument('--verbose', action='store_true')
 parser.add_argument('--save-predictions', action='store_true')
 parser.add_argument('--save-hidden-states', action='store_true')
 parser.add_argument('--use-previous-state', action='store_true')
-args = parser.parse_args()
-
+# args = parser.parse_args()
+#%%
+model_name = 'gpt2-xl'
+sentence_file = 'milkyway_transcript'
+story_name = 'milkyway'
+context_length = 1024
+suffix = ''
+verbose = False
+save_predictions = False
+save_hidden_states = False
+use_previous_state = False
+curr_path = r'/home/itzik/PycharmProjects/brainiak/docs/examples/eventseg/'
+#%%
 # Load tokenizer
-tokenizer = AutoTokenizer.from_pretrained(args.model_name,
-                                          add_prefix_space=True,
-                                          cache_dir="/scratch/gpfs/mk35/.cache/transformers/")
-if args.context_length <= 0:
-    args.context_length = tokenizer.model_max_length
-assert args.context_length <= tokenizer.model_max_length, \
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+                                          # add_prefix_space=True,
+                                          # cache_dir="~/scratch/gpfs/mk35/.cache/transformers/")
+if context_length <= 0:
+    context_length = tokenizer.model_max_length
+assert context_length <= tokenizer.model_max_length, \
     'given length is greater than max length'
-
+#%%
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-print(args)
 
 # Load pre-trained model
-save_states = args.save_hidden_states
-model = AutoModelForCausalLM.from_pretrained(args.model_name,
+save_states = save_hidden_states
+model = AutoModelForCausalLM.from_pretrained(model_name,
                                              output_hidden_states=save_states)
 model = model.to(device)
 model.eval()  # Set the model in evaluation mode to deactivate dropout modules
 
-base_name = f'{args.story_name}{args.model_name}-c_{args.context_length}{args.suffix}'
-os.makedirs(os.path.join('results', args.story_name), exist_ok=True)
-
+base_name = f'{story_name}{model_name}-c_{context_length}{suffix}'
+os.makedirs(os.path.join('results', story_name), exist_ok=True)
+#%%
 # Read all words and tokenize them
 # NOTE - I had to strip the newline in order to reproduce previous embeddings
 #        maybe the old tokenizer did it for us?
 tokens = []
-if args.story_name in ('pieman', 'tunnel', 'milkyway'):
-    sentence_file = '%s_transcript.txt' % args.story_name
-with open(args.sentence_file, 'r') as fp:
+# if story_name in ('pieman', 'tunnel', 'milkyway'):
+#     sentence_file = '%s_transcript.txt' % story_name
+with open(curr_path+sentence_file, 'r') as fp:
     for line in fp:
         tokens.extend(tokenizer.tokenize(line.rstrip()))
 
@@ -80,7 +90,7 @@ with open(args.sentence_file, 'r') as fp:
 token_ids = torch.tensor(tokenizer.convert_tokens_to_ids(tokens),
                          device=device)
 assert len(tokens) == len(token_ids)
-
+#%%
 data = []
 ranks = []
 predictions = []
@@ -90,7 +100,7 @@ target_probs = []
 df_sur_entr = pd.DataFrame(
     columns={'Target Word', 'Target Word Probability', 'Surprise', 'Entropy', 'Top 1 Probability', 'Top 1 Word',
              'Top 5 Probability', 'logits'})
-iter_fun = range if args.verbose else tqdm.trange
+iter_fun = range if verbose else tqdm.trange
 for i in iter_fun(1, len(tokens) - 1):
 
     # Skip punctuation
@@ -99,10 +109,10 @@ for i in iter_fun(1, len(tokens) - 1):
 
     # TODO - use the past variable to make it quicker
     # token_ids is the list of tokens.
-    start, end = max(0, i - args.context_length + 1), i + 1
+    start, end = max(0, i - context_length + 1), i + 1
     context = token_ids[start:end].unsqueeze(0)
 
-    if args.verbose:
+    if verbose:
         print('Encoding "%s" from sequence:\t' %
               (tokenizer.decode(token_ids[i].tolist())),
               tokenizer.decode(token_ids[end - 10:end].tolist()), end='|')
@@ -134,10 +144,10 @@ for i in iter_fun(1, len(tokens) - 1):
     rank = torch.nonzero(true_id == probabilities.argsort(descending=True))
     ranks.append(rank.item())
 
-    if args.save_predictions:
+    if save_predictions:
         predictions.append(prediction_scores[0, -2].unsqueeze(0).cpu())
 
-    if args.verbose:
+    if verbose:
         probsort, idxsort = probabilities.sort(dim=-1, descending=True)
         print(tokenizer.decode(idxsort[:10].tolist()),
               word_probability,
@@ -145,9 +155,9 @@ for i in iter_fun(1, len(tokens) - 1):
 
     # Get the hidden representation of the last word
     last_hidden_states = None
-    if args.save_hidden_states:
+    if save_hidden_states:
         hidden_states = outputs[2]
-        time_index = -2 if args.use_previous_state else -1
+        time_index = -2 if use_previous_state else -1
         # Just get the last hidden state, maybe change later
         last_hidden_states = [hidden_states[-1][0, time_index, :].cpu()]
         # last_hidden_states = [hidden_state[0,time_index,:].cpu() for
@@ -164,7 +174,7 @@ for i in iter_fun(1, len(tokens) - 1):
     df_sur_entr.loc[i, 'logits'] = prediction_scores[0, -2].cpu().tolist()
 
 # Save tokens and hidden states before aligning
-with open(f'results/{args.story_name}/{base_name}.pkl', 'wb') as f:
+with open(f'results/{story_name}/{base_name}.pkl', 'wb') as f:
     pickle.dump(data, f)
 # If you want to debug...
 # breakpoint()
@@ -172,29 +182,14 @@ with open(f'results/{args.story_name}/{base_name}.pkl', 'wb') as f:
 # df = pd.DataFrame.from_records([(e[0], e[2][0].tolist()) for e in data])
 
 # Save surprise and entropy values
-output_file_surprise = f'results/{args.story_name}/{base_name}_surp_entr.csv'
+output_file_surprise = f'results/{story_name}/{base_name}_surp_entr.csv'
 
 # Calculate manual accuracy
 col1 = [d[0] for d in data]
 col2 = [d[-1] for d in data]
 acc1 = sum([x.strip() == y.strip() for x, y in zip(col1, col2)]) / len(col1)
-
-# Align the two lists
-df = pd.read_csv(args.datum_file, sep=',')
-rows = list(row for _, row in df.iterrows())
-words = list(map(str.lower, df.word.tolist()))
-model_tokens = [d[0] for d in data]
-mask1, mask2 = lcs(words, model_tokens)
-
-aligned_data = []
-for i, j in zip(mask1, mask2):
-    data[j].append(rows[i])
-    aligned_data.append(data[j])
-
-print(f'Went from {len(data)} {len(words)} words to {len(aligned_data)} words')
-
-assert len(aligned_data) > 0
-
+#%%
+aligned_data = data
 # Calculate correlation with behavior
 
 
@@ -204,7 +199,7 @@ assert len(aligned_data) > 0
 # Calcualte top-k
 
 # Write out surprise and entropy
-df_sur_entr.iloc[mask2].to_csv(output_file_surprise)
+# df_sur_entr.iloc[mask2].to_csv(output_file_surprise)
 
 # Write out predictions and probabilities
 with open('results/' + args.story_name + '/predictions.csv', 'w') as fp:
