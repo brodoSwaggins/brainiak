@@ -452,9 +452,9 @@ plt.show(block = blck)
 best_ind = np.argmax(score)
 plt.figure(figsize=(1.5,5))
 plt.violinplot(within_across_all[best_ind,:,1:].mean(0), showextrema=True) # permuted
-plt.scatter(1, within_across_all[best_ind,:,0].mean(0)) # real
+plt.scatter(1, within_across_all[best_ind,:,0].mean(0), label= 'Real events') # real
 plt.gca().xaxis.set_visible(False)
-plt.ylabel('Within vs across boundary correlation')
+plt.ylabel('Within vs across boundary correlation'); plt.legend()
 plt.title('{} {} :\nHeld-out subject HMM with {} events ({} perms)'.format(side, label, num_events[best_ind], nPerm))
 plt.show(block = blck)
 #%% Loop over all cortical regions
@@ -493,6 +493,8 @@ for r in range(len(HMMscorePerRegion)):
 #%%
 np.savez('bestNumEvents_left_w5', bestNumEvents=bestNumEvents)
 #%%
+bestNumEvents = np.load('bestNumEvents_left_w5.npz', allow_pickle=True)['bestNumEvents'].item()
+#%%
 plot_nEvents = np.zeros_like(surfL[0][:,0])
 for r in bestNumEvents:
     regionInd = np.where(atlas_destrieux["map_"+side] == r)[0]
@@ -508,7 +510,7 @@ plotting.plot_surf_roi(
         bg_map=fsaverage["sulc_"+side],
         bg_on_data=True, darkness=0.25,
         title=f"Optimal HMM granularity, {side} hemi, {task}", title_font_size=14,
-        colorbar = True, cmap = 'viridis_r', threshold=2
+        colorbar = True, cmap = 'viridis', threshold=2
 )
 plt.show(block=blck)
 #%%
