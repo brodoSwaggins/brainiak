@@ -29,8 +29,8 @@ import tqdm
 from scipy import stats
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from lcs import lcs
-#%%
+from lcs2 import lcs
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--model-name', type=str, required=True)
 parser.add_argument('--datum-file', type=str, required=True)
@@ -70,7 +70,7 @@ os.makedirs(os.path.join('results', args.story_name), exist_ok=True)
 # NOTE - I had to strip the newline in order to reproduce previous embeddings
 #        maybe the old tokenizer did it for us?
 tokens = []
-if args.story_name in ('pieman', 'tunnel'):
+if args.story_name in ('pieman', 'tunnel', 'milkyway'):
     sentence_file = '%s_transcript.txt' % args.story_name
 with open(args.sentence_file, 'r') as fp:
     for line in fp:
