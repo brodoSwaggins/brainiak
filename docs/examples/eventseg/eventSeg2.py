@@ -459,20 +459,70 @@ plt.title('{} {} :\nHeld-out subject HMM with {} events ({} perms)'.format(side,
 plt.show(block = blck)
 #%% Loop over all cortical regions
 num_events = np.arange(2, 50, 1)
-HMMscorePerRegion= []
+HMMscorePerRegion= {}
 nPerm = 1000 ; w = 5 ; nSubj = len(files)
-for r in range(1, len(atlas_destrieux['labels']), 1):
+for r in range(1, 17, 1):
     label = atlas_destrieux['labels'][r]
     regionInd = np.where(atlas_destrieux["map_"+side] == r)[0]
     all_region = all_surf[:,regionInd,:]
-    score = [] ; within_across_all = np.zeros((len(num_events),nSubj, nPerm+1)) ; best_ind = 0
+    within_across_all = np.zeros((len(num_events),nSubj, nPerm+1))
     for i,nEvents in enumerate(num_events):
         within_across_all[i] = within_across_corr(all_region, nEvents, w, nPerm, verbose=0)
         score = within_across_all[i,:,0].mean()
         print(f"Region {r}: {label}, number of regions: {nEvents}, score: {score}")
+        if r not in HMMscorePerRegion or score > HMMscorePerRegion[X]['score']:
+            "+++++++++++++++++++++updating best++++++++++++++++++++++++++++"
+            HMMscorePerRegion[r] = {
+                'name': label,
+                'num of regions': nEvents,
+                'score': score
+            }
     HMMscorePerRegion.append(within_across_all)
 #%% SAve the results
-np.savez('HMMscorePerRegion_left', HMMscorePerRegion=HMMscorePerRegion)
+np.savez('HMMscorePerRegion_left_w5', HMMscorePerRegion=HMMscorePerRegion)
+#%%
+bestNumEvents= {}
+for r in range(len(HMMscorePerRegion)):
+    score = np.max(HMMscorePerRegion[r][:,:,0].mean(-1))
+    best = num_events[np.argmax(HMMscorePerRegion[r][:,:,0].mean(-1))]
+    bestNumEvents[r+1] = {
+        'name': atlas_destrieux['labels'][r + 1],
+        'numEvents': best,
+        'score': score
+    }
+#%%
+np.savez('bestNumEvents_left_w5', bestNumEvents=bestNumEvents)
+#%%
+plot_nEvents = np.zeros_like(surfL[0][:,0])
+for r in bestNumEvents:
+    regionInd = np.where(atlas_destrieux["map_"+side] == r)[0]
+    #show region on surface
+    plot_nEvents[regionInd] = bestNumEvents[r]['numEvents']
+    print(r, ": ", bestNumEvents[r]['name'], bestNumEvents[r]['numEvents'])
+#%%
+plotting.plot_surf_roi(
+        fsaverage["infl_" + side],
+        roi_map= plot_nEvents,
+        hemi=side,
+        view="lateral",
+        bg_map=fsaverage["sulc_"+side],
+        bg_on_data=True, darkness=0.25,
+        title=f"Optimal HMM granularity, {side} hemi, {task}", title_font_size=14,
+        colorbar = True, cmap = 'viridis_r', threshold=2
+)
+plt.show(block=blck)
+#%%
+plotting.plot_surf(
+        fsaverage["infl_" + side],
+        plot_nEvents,
+        hemi=side,
+        view="medial",
+        bg_map=fsaverage["sulc_"+side],
+        bg_on_data=True,
+        title=f"Destrieux {side}",
+        cmap = 'viridis', cbar_tick_format="auto"
+)
+plt.show(block=blck)
 
 #%%
 fsaverage = datasets.fetch_surf_fsaverage()

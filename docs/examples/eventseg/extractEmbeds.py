@@ -29,7 +29,7 @@ import tqdm
 from scipy import stats
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from lcs2 import lcs
+from lcs import lcs
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model-name', type=str, required=True)
