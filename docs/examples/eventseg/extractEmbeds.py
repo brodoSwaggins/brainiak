@@ -14,6 +14,7 @@ word dog.
 # M. Kumar added code to compute surprise and entropy
 # Use this code for datums that do have Cloze data, for example, pieman and tunnel.
 
+
 import argparse
 import json
 import os
@@ -50,8 +51,8 @@ story_name = 'milkyway'
 context_length = 1024
 suffix = ''
 verbose = False
-save_predictions = False
-save_hidden_states = False
+save_predictions = True
+save_hidden_states = True
 use_previous_state = False
 curr_path = r'/home/itzik/PycharmProjects/brainiak/docs/examples/eventseg/'
 #%%
@@ -125,34 +126,34 @@ for i in iter_fun(1, len(tokens) - 1):
         outputs = model(context)
 
     # Get the probability for the _correct_ word
-    prediction_scores = outputs[0]
-    probabilities = F.softmax(prediction_scores[0, -2], dim=0)  # Note: -2
-    word_probability = probabilities[token_ids[i]].item()
+    # prediction_scores = outputs[0]
+    # probabilities = F.softmax(prediction_scores[0, -2], dim=0)  # Note: -2
+    # word_probability = probabilities[token_ids[i]].item()
 
     # Compute Surprise and Entropy
 
-    logp = np.log2(probabilities.cpu()).numpy()
-    prob = probabilities.cpu().numpy()
-    df_sur_entr.loc[i, 'Target Word Probability'] = word_probability
-    df_sur_entr.loc[i, 'Surprise'] = -np.log2(word_probability)
-    df_sur_entr.loc[i, 'Entropy'] = -np.sum(prob * logp)
+    # logp = np.log2(probabilities.cpu()).numpy()
+    # prob = probabilities.cpu().numpy()
+    # df_sur_entr.loc[i, 'Target Word Probability'] = word_probability
+    # df_sur_entr.loc[i, 'Surprise'] = -np.log2(word_probability)
+    # df_sur_entr.loc[i, 'Entropy'] = -np.sum(prob * logp)
 
     # Use gpt2 vocab for top1
-    predicted_word = tokenizer.decode(probabilities.argmax().item())
-
-    true_id = context[0][-1].item()
-    rank = torch.nonzero(true_id == probabilities.argsort(descending=True))
-    ranks.append(rank.item())
-
-    if save_predictions:
-        predictions.append(prediction_scores[0, -2].unsqueeze(0).cpu())
-
-    if verbose:
-        probsort, idxsort = probabilities.sort(dim=-1, descending=True)
-        print(tokenizer.decode(idxsort[:10].tolist()),
-              word_probability,
-              predicted_word)
-
+    # predicted_word = tokenizer.decode(probabilities.argmax().item())
+    #
+    # true_id = context[0][-1].item()
+    # rank = torch.nonzero(true_id == probabilities.argsort(descending=True))
+    # ranks.append(rank.item())
+    #
+    # if save_predictions:
+    #     predictions.append(prediction_scores[0, -2].unsqueeze(0).cpu())
+    #
+    # if verbose:
+    #     probsort, idxsort = probabilities.sort(dim=-1, descending=True)
+    #     print(tokenizer.decode(idxsort[:10].tolist()),
+    #           word_probability,
+    #           predicted_word)
+    #
     # Get the hidden representation of the last word
     last_hidden_states = None
     if save_hidden_states:
@@ -164,14 +165,15 @@ for i in iter_fun(1, len(tokens) - 1):
         #                      hidden_state in hidden_states]
 
     token = tokenizer.decode(token_ids[i].cpu().item()).strip().lower()
-    data.append([token, word_probability, last_hidden_states, predicted_word])
+    # data.append([token, word_probability, last_hidden_states, predicted_word])
+    data.append(last_hidden_states)
 
     # Add the top1 predictions to the data frame
-    df_sur_entr.loc[i, 'Top 1 Probability'] = max(probabilities.cpu()).numpy()
-    df_sur_entr.loc[i, 'Target Word'] = tokenizer.decode(token_ids[i].tolist())
-    df_sur_entr.loc[i, 'Top 1 Word'] = predicted_word
-    df_sur_entr.loc[i, 'Top 5 Probability'] = np.sort(probabilities.cpu().numpy())[-5:].tolist()
-    df_sur_entr.loc[i, 'logits'] = prediction_scores[0, -2].cpu().tolist()
+    # df_sur_entr.loc[i, 'Top 1 Probability'] = max(probabilities.cpu()).numpy()
+    # df_sur_entr.loc[i, 'Target Word'] = tokenizer.decode(token_ids[i].tolist())
+    # df_sur_entr.loc[i, 'Top 1 Word'] = predicted_word
+    # df_sur_entr.loc[i, 'Top 5 Probability'] = np.sort(probabilities.cpu().numpy())[-5:].tolist()
+    # df_sur_entr.loc[i, 'logits'] = prediction_scores[0, -2].cpu().tolist()
 
 # Save tokens and hidden states before aligning
 with open(f'results/{story_name}/{base_name}.pkl', 'wb') as f:
@@ -185,9 +187,9 @@ with open(f'results/{story_name}/{base_name}.pkl', 'wb') as f:
 output_file_surprise = f'results/{story_name}/{base_name}_surp_entr.csv'
 
 # Calculate manual accuracy
-col1 = [d[0] for d in data]
-col2 = [d[-1] for d in data]
-acc1 = sum([x.strip() == y.strip() for x, y in zip(col1, col2)]) / len(col1)
+# col1 = [d[0] for d in data]
+# col2 = [d[-1] for d in data]
+# acc1 = sum([x.strip() == y.strip() for x, y in zip(col1, col2)]) / len(col1)
 #%%
 aligned_data = data
 # Calculate correlation with behavior
