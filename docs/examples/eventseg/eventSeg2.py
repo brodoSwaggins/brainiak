@@ -1,3 +1,4 @@
+import pickle
 import wesanderson as wa
 import sys
 from functools import reduce
@@ -267,102 +268,11 @@ all_TR = image.load_img(file)
 print(all_TR.shape)
 first_TR = image.index_img(file, 0)
 print(first_TR.shape)
+#%%
 fsaverage = datasets.fetch_surf_fsaverage()
 atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
 all_TR_surfR = nl.surface.vol_to_surf(all_TR, fsaverage.pial_right)
 all_TR_surfL = nl.surface.vol_to_surf(all_TR, fsaverage.pial_left)
-#%% import word embeddings
-task = 'milkyway'
-embeddingsData = pd.read_csv(dataPath + r'extract-embeddings-data\results\{1}\milkywaygpt2-xl-c_1024-layer_0_pca50d.csv'.format(task, task))
-
-# First 4 columns a are metadata (word, onset, offset, speaker), the rest are the embeddings. Separate them
-metadata = embeddingsData.iloc[:,:5]
-embeds = embeddingsData.iloc[:,5:] # time x dim
-embeds.columns = range(0,50)
-
-#%% Run MDL with multiple b values and record where events occurred
-# For each word in embeds, save the number of conditions for which it appeared as an event boundary
-# =============================================================================
-#%% open previously saved numEB npy file
-EBdata = np.load(r'/home/itzik/PycharmProjects/EventBoundaries_deploy/numEB_monkey_narrative_.npz')
-EB_all = EBdata['EBs']; bvals = EBdata['bvals']; # tvals = EBdata['tvals'] ; segPts_all = EBdata['segPts']
-#%% Run over multiple values of parameters b and tau
-Y = embeds.values.T
-event_rep = 'const' ; sig = np.std(Y, axis=-1)
-bvals = np.arange(90, 131, 5) # such that we capture the 3rd quartile of button press ratio from the data
-tvals = np.arange(25,530,100)
-#%% Run aposteriori MDL
-EB_all = np.zeros((len(bvals), Y.shape[-1]))
-stime = time.time()
-for i, b in enumerate(bvals):
-    print( "b=",b,".........")
-    sstime = time.time()
-    # EBs, MDL, seg_points, seg_offsets = MDL_tau(Y, tau, b, sig, rounded=True, v=False)
-    EB, MDL = EB_split(Y, b=b, rep='const', sig=sig)
-    for k in EB:
-        EB_all[i, k] += 1
-    print("                   ====>time: %f score: %f" % (time.time()-sstime, MDL))
-print("total time: %f" % (time.time()-stime))
-
-#%% Print story with EB in Capital letters
-for i, w in enumerate(metadata['0']):
-    if i in EB :
-        print(w.upper(), end=' || ')
-    else:
-        print(w, end=' ')
-    if i % 20 == 19:
-        print('\n')
-print()
-#%% Running with tau:
-# EB_all = np.zeros((len(bvals), Y.shape[-1]))
-# segPts_all = np.zeros((len(bvals), len(tvals), Y.shape[-1]))
-# stime = time.time()
-# for i, b in enumerate(bvals):
-#     for j, tau in enumerate(tvals):
-#         print( "b=",b, "tau=",tau, ".........")
-#         sstime = time.time()
-#         # EBs, MDL, seg_points, seg_offsets = MDL_tau(Y, tau, b, sig, rounded=True, v=False)
-#         EBs, MDL, seg_points = MDL_tau_narrative(Y, tau, b, sig, rounded=False, updateSig=False, v=False)
-#         EB = EBs[-1]
-#         for k in EB:
-#             EB_all[i, j, k] += 1
-#         for k in seg_points:
-#             segPts_all[i, j, k] += 1
-#         print("                   ====>time: %f score: %f" % (time.time()-sstime, MDL[-1]))
-# print("total time: %f" % (time.time()-stime))
-#%% save params and results
-np.savez('mriEB_'+task, EBs=EB_all, bvals=bvals)
-#%% Plot EB hierarchy
-fig = plt.figure()
-title_str = task
-waxis = np.arange(0, len(EB_all.T))
-cc = wa.color_palettes['Darjeeling Limited'][0]
-for i,b in enumerate(bvals):
-    bndrs = np.where(EB_all[i])
-    db = (bvals[1]-bvals[0])/2
-    plt.vlines(bndrs, b-db, b+db, colors=cc[i % len(cc)], linewidth=1)
-    gran = int(np.sum(EB_all[i]))
-    plt.text(0, b, f'{gran}', color=cc[i % len(cc)], fontsize=8)
-plt.ylabel('b value'); plt.xlabel('Word index'); plt.yticks(bvals)
-plt.title('Event boundaries hierarchy over b values, '+title_str)
-plt.show(block=True)
-
-# =============================================================================
-# =============================================================================
-#%%
-#%% load Narrative DS partcipants tsv
-pathDS = r'/home/itzik/Desktop/EventBoundaries/Narratives_DSs'
-participants = pd.read_csv(pathDS + r'/participants.tsv', sep='\t')
-
-# extract rows where 'task' field contains 'pieman', exclude 'piemanpni'
-task_participants = participants[participants.task.str.contains(task) & ~participants.task.str.contains('piemanpni')]
-#%%
-pathDS = r'smb://132.64.186.144/hartlabnas/personal_folders/isaac.ash/OptCodingEB/narrative_DS/ds002345-download'
-excluded = ['sub-001', 'sub-013', 'sub-014', 'sub-021', 'sub-022', 'sub-038', 'sub-056', 'sub-068', 'sub-069']
-folders = [f for f in task_participants.participant_id.values if f not in excluded]
-paths = [pathDS + '/' + f +'/func/' + f + '_task-pieman_bold.nii.gz' for f in folders]
-files = [nl.image.load_img(p) for p in paths]
-## todo ............. acces the preprocessed data
 #%% Load MilkyWay preprocessed data
 if sys.platform == 'linux':
     pathDS = r'/home/itzik/Desktop/EventBoundaries/milkyway_vodka/Milkyway/niftis_preprocessed'
@@ -433,7 +343,7 @@ plotting.plot_surf_roi(
     threshold=0.0001,
 )
 plt.show(block=blck)
-#%% Find the best numbr of events for the region
+#%% Find the best number of events for the region
 all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
 all_region = all_surf[:,regionInd,:]
 num_events = np.arange(32, 42, 1)
@@ -525,7 +435,119 @@ plotting.plot_surf(
         cmap = 'viridis', cbar_tick_format="auto"
 )
 plt.show(block=blck)
+#%% find max and min of bestNumEvents
+maxNumEvents = np.max([bestNumEvents[r]['numEvents'] for r in bestNumEvents])
+minNumEvents = np.min([bestNumEvents[r]['numEvents'] for r in bestNumEvents])
+# findd for wwhich region
+#%% import word embeddings pickle
+dataPath = '/home/itzik/PycharmProjects/brainiak/docs/examples/eventseg/results/milkyway'
+task = 'milkyway'
+hiddenLayer_data = pd.read_pickle(dataPath+'/milkywaygpt2-xl-c_1024.pkl')
+#%% PCA
+from sklearn.decomposition import PCA
+k = 50
+embeddings = np.array([np.array(a[0]) for a in hiddenLayer_data]) # [np.array(a) for a in hiddenLayer_data]
+pca = PCA(n_components=k, whiten=False, random_state=42)
+Y = pca.fit_transform(embeddings)
+# Rescale
+Y = Y / np.sqrt(pca.explained_variance_)  # same as whiten
+Y = Y.T
+# reducedX = reducedX / pca.singular_values_
+#%% save embeddings
+np.savez('embeddingsPCA_'+task, embeddings=Y)
+#%%
+#%% Read pickle of embeds
+# pfile = open('/home/itzik/PycharmProjects/EventBoundaries/results/milkyway/milkywaygpt2-xl-c_1024.pkl', 'rb')
+# embeds_data = pickle.loads(pfile)
 
+
+#%% Run MDL with multiple b values and record where events occurred
+# For each word in embeds, save the number of conditions for which it appeared as an event boundary
+# =============================================================================
+#%% open previously saved numEB npy file
+EBdata = np.load(r'/home/itzik/PycharmProjects/EventBoundaries_deploy/numEB_monkey_narrative_.npz')
+EB_all = EBdata['EBs']; bvals = EBdata['bvals']; # tvals = EBdata['tvals'] ; segPts_all = EBdata['segPts']
+#%% Run over multiple values of parameters b and tau
+event_rep = 'const' ; sig = np.std(Y, axis=-1)
+bvals =  np.concatenate((np.arange(100,410,10),np.arange(425,525,25)))
+tvals = np.arange(25,530,100)
+#%% Run aposteriori MDL
+EB_all = np.zeros((len(bvals), Y.shape[-1]))
+stime = time.time()
+for i, b in enumerate(bvals):
+    print( "b=",b,".........")
+    sstime = time.time()
+    # EBs, MDL, seg_points, seg_offsets = MDL_tau(Y, tau, b, sig, rounded=True, v=False)
+    EB, MDL = EB_split(Y, b=b, rep='const', sig=sig)
+    for k in EB:
+        EB_all[i, k] += 1
+    print("                   ====>time: %f score: %f" % (time.time()-sstime, MDL))
+print("total time: %f" % (time.time()-stime))
+
+#%% Print story with EB in Capital letters
+for i, w in enumerate(metadata['0']):
+    if i in EB :
+        print(w.upper(), end=' || ')
+    else:
+        print(w, end=' ')
+    if i % 20 == 19:
+        print('\n')
+print()
+#%% Running with tau:
+# EB_all = np.zeros((len(bvals), Y.shape[-1]))
+# segPts_all = np.zeros((len(bvals), len(tvals), Y.shape[-1]))
+# stime = time.time()
+# for i, b in enumerate(bvals):
+#     for j, tau in enumerate(tvals):
+#         print( "b=",b, "tau=",tau, ".........")
+#         sstime = time.time()
+#         # EBs, MDL, seg_points, seg_offsets = MDL_tau(Y, tau, b, sig, rounded=True, v=False)
+#         EBs, MDL, seg_points = MDL_tau_narrative(Y, tau, b, sig, rounded=False, updateSig=False, v=False)
+#         EB = EBs[-1]
+#         for k in EB:
+#             EB_all[i, j, k] += 1
+#         for k in seg_points:
+#             segPts_all[i, j, k] += 1
+#         print("                   ====>time: %f score: %f" % (time.time()-sstime, MDL[-1]))
+# print("total time: %f" % (time.time()-stime))
+#%% save params and results
+np.savez('fullMDL_EB_'+task, EBs=EB_all, bvals=bvals)
+#%% Plot EB hierarchy
+fig = plt.figure()
+title_str = task
+waxis = np.arange(0, len(EB_all.T))
+numEvents_b = {}
+cc = wa.color_palettes['Darjeeling Limited'][0]
+for i,b in enumerate(bvals):
+    bndrs = np.where(EB_all[i])
+    db = (bvals[1]-bvals[0])/2
+    plt.vlines(bndrs, b-db, b+db, colors=cc[i % len(cc)], linewidth=1)
+    gran = int(np.sum(EB_all[i]))
+    if gran not in numEvents_b:
+        numEvents_b[gran] = []
+    numEvents_b[gran].append(b)
+    plt.text(0, b, f'{gran}', color=cc[i % len(cc)], fontsize=8)
+plt.ylabel('b value'); plt.xlabel('Word index'); plt.yticks(bvals)
+plt.title('Event boundaries hierarchy over b values, '+title_str)
+plt.show(block=True)
+
+# =============================================================================
+# =============================================================================
+#%%
+#%% load Narrative DS partcipants tsv
+pathDS = r'/home/itzik/Desktop/EventBoundaries/Narratives_DSs'
+participants = pd.read_csv(pathDS + r'/participants.tsv', sep='\t')
+
+# extract rows where 'task' field contains 'pieman', exclude 'piemanpni'
+task_participants = participants[participants.task.str.contains(task) & ~participants.task.str.contains('piemanpni')]
+#%%
+pathDS = r'smb://132.64.186.144/hartlabnas/personal_folders/isaac.ash/OptCodingEB/narrative_DS/ds002345-download'
+excluded = ['sub-001', 'sub-013', 'sub-014', 'sub-021', 'sub-022', 'sub-038', 'sub-056', 'sub-068', 'sub-069']
+folders = [f for f in task_participants.participant_id.values if f not in excluded]
+paths = [pathDS + '/' + f +'/func/' + f + '_task-pieman_bold.nii.gz' for f in folders]
+files = [nl.image.load_img(p) for p in paths]
+## todo ............. acces the preprocessed data
+s
 #%%
 fsaverage = datasets.fetch_surf_fsaverage()
 atlas_destrieux = datasets.fetch_atlas_surf_destrieux()

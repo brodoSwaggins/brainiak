@@ -160,7 +160,7 @@ for i in iter_fun(1, len(tokens) - 1):
         hidden_states = outputs[2]
         time_index = -2 if use_previous_state else -1
         # Just get the last hidden state, maybe change later
-        last_hidden_states = [hidden_states[-1][0, time_index, :].cpu()]
+        last_hidden_states = hidden_states[-1][0, time_index, :].cpu()
         # last_hidden_states = [hidden_state[0,time_index,:].cpu() for
         #                      hidden_state in hidden_states]
 
@@ -190,6 +190,9 @@ output_file_surprise = f'results/{story_name}/{base_name}_surp_entr.csv'
 # col1 = [d[0] for d in data]
 # col2 = [d[-1] for d in data]
 # acc1 = sum([x.strip() == y.strip() for x, y in zip(col1, col2)]) / len(col1)
+#%%
+pfile = open('/home/itzik/PycharmProjects/EventBoundaries/results/milkyway/milkywaygpt2-xl-c_1024.pkl', 'rb')
+pp2 = pickle.loads(pfile)
 #%%
 aligned_data = data
 # Calculate correlation with behavior
