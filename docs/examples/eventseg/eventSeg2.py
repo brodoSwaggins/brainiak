@@ -469,7 +469,7 @@ EBdata = np.load(r'/home/itzik/PycharmProjects/EventBoundaries_deploy/numEB_monk
 EB_all = EBdata['EBs']; bvals = EBdata['bvals']; # tvals = EBdata['tvals'] ; segPts_all = EBdata['segPts']
 #%% Run over multiple values of parameters b and tau
 event_rep = 'const' ; sig = np.std(Y, axis=-1)
-bvals =  np.concatenate((np.arange(100,410,10),np.arange(425,525,25)))
+bvals =  np.arange(101,200,1) # np.concatenate((np.arange(100,410,10),np.arange(425,525,25)))
 tvals = np.arange(25,530,100)
 #%% Run aposteriori MDL
 EB_all = np.zeros((len(bvals), Y.shape[-1]))
@@ -511,8 +511,10 @@ print()
 #         print("                   ====>time: %f score: %f" % (time.time()-sstime, MDL[-1]))
 # print("total time: %f" % (time.time()-stime))
 #%% save params and results
-np.savez('fullMDL_EB_'+task, EBs=EB_all, bvals=bvals)
+np.savez('fullMDL_addendum_EB_'+task, EBs=EB_all, bvals=bvals)
 #%% Plot EB hierarchy
+# todo ............. do not proceed before loading the data and combining with the addendum
+# todo then run loop below over the entire data and get the dictionary right
 fig = plt.figure()
 title_str = task
 waxis = np.arange(0, len(EB_all.T))
@@ -529,7 +531,7 @@ for i,b in enumerate(bvals):
     plt.text(0, b, f'{gran}', color=cc[i % len(cc)], fontsize=8)
 plt.ylabel('b value'); plt.xlabel('Word index'); plt.yticks(bvals)
 plt.title('Event boundaries hierarchy over b values, '+title_str)
-plt.show(block=True)
+plt.show(block=blck)
 
 # =============================================================================
 # =============================================================================
