@@ -274,6 +274,7 @@ atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
 all_TR_surfR = nl.surface.vol_to_surf(all_TR, fsaverage.pial_right)
 all_TR_surfL = nl.surface.vol_to_surf(all_TR, fsaverage.pial_left)
 #%% Load MilkyWay preprocessed data
+task = 'milkyway'
 if sys.platform == 'linux':
     pathDS = r'/home/itzik/Desktop/EventBoundaries/milkyway_vodka/Milkyway/niftis_preprocessed'
 else:
@@ -419,7 +420,7 @@ plotting.plot_surf_roi(
         view="lateral",
         bg_map=fsaverage["sulc_"+side],
         bg_on_data=True, darkness=0.25,
-        title=f"Optimal HMM granularity, {side} hemi, {task}", title_font_size=14,
+        title=f"Optimal HMM granularity, {side} hemi, '{task}'", title_font_size=14,
         colorbar = True, cmap = 'viridis', threshold=2
 )
 plt.show(block=blck)
@@ -428,7 +429,7 @@ plotting.plot_surf(
         fsaverage["infl_" + side],
         plot_nEvents,
         hemi=side,
-        view="medial",
+        view="lateral",
         bg_map=fsaverage["sulc_"+side],
         bg_on_data=True,
         title=f"Destrieux {side}",
@@ -438,7 +439,8 @@ plt.show(block=blck)
 #%% find max and min of bestNumEvents
 maxNumEvents = np.max([bestNumEvents[r]['numEvents'] for r in bestNumEvents])
 minNumEvents = np.min([bestNumEvents[r]['numEvents'] for r in bestNumEvents])
-# findd for wwhich region
+print(f"Max number of events: {maxNumEvents}, Min number of events: {minNumEvents}")
+
 #%% import word embeddings pickle
 dataPath = '/home/itzik/PycharmProjects/brainiak/docs/examples/eventseg/results/milkyway'
 task = 'milkyway'
@@ -456,6 +458,7 @@ Y = Y.T
 #%% save embeddings
 np.savez('embeddingsPCA_'+task, embeddings=Y)
 #%%
+Y = np.load('embeddingsPCA_milkyway.npz')['embeddings'].T
 #%% Read pickle of embeds
 # pfile = open('/home/itzik/PycharmProjects/EventBoundaries/results/milkyway/milkywaygpt2-xl-c_1024.pkl', 'rb')
 # embeds_data = pickle.loads(pfile)
@@ -465,11 +468,35 @@ np.savez('embeddingsPCA_'+task, embeddings=Y)
 # For each word in embeds, save the number of conditions for which it appeared as an event boundary
 # =============================================================================
 #%% open previously saved numEB npy file
-EBdata = np.load(r'/home/itzik/PycharmProjects/EventBoundaries_deploy/numEB_monkey_narrative_.npz')
-EB_all = EBdata['EBs']; bvals = EBdata['bvals']; # tvals = EBdata['tvals'] ; segPts_all = EBdata['segPts']
+# EBdata = np.load(r'/home/itzik/PycharmProjects/EventBoundaries_deploy/numEB_monkey_narrative_.npz')
+EBdata = np.load('fullMDL_EB_combined_'+task+'.npz')
+EB_all = EBdata['EBs']; bvals = EBdata['bvals'] #; tvals = EBdata['tvals'] ; segPts_all = EBdata['segPts']
+
+#%% open previously saved numEB npy files and combine
+# EBdata1 = np.load(r'fullMDL_EB_milkyway.npz')
+# EB_all1 = EBdata1['EBs']; bvals1 = EBdata1['bvals']; # tvals = EBdata['tvals'] ; segPts_all = EBdata['segPts']
+# EBdata2 = np.load(r'fullMDL_addendum_EB_milkyway.npz')
+# EB_all2 = EBdata2['EBs']; bvals2 = EBdata2['bvals']; # tvals = EBdata['tvals'] ; segPts_all = EBdata['segPts']
+#%% Combine the two EBs ordered by the corresponding bvals
+# bvals = np.unique(np.concatenate((bvals1, bvals4)))
+# EB_all = np.zeros((len(bvals), 1315))
+# for i, b in enumerate(bvals):
+#     if b in bvals1:
+#         ind1 = np.where(bvals1 == b)[0][0]
+#         if b in bvals4:
+#             print(b, "found in both")
+#             ind2 = np.where(bvals4 == b)[0][0]
+#             assert np.all(EB_all1[ind1,:]==EB_all4[ind2,:])
+#         EB_all[i,:] = EB_all1[ind1,:]
+#     elif b in bvals4:
+#         ind2 = np.where(bvals4 == b)[0][0]
+#         EB_all[i,:] = EB_all4[ind2,:]
+#     else:
+#         print("Error: b not found in either EBs")
+
 #%% Run over multiple values of parameters b and tau
 event_rep = 'const' ; sig = np.std(Y, axis=-1)
-bvals =  np.arange(101,200,1) # np.concatenate((np.arange(100,410,10),np.arange(425,525,25)))
+bvals =  np.arange(101,500,1) # np.concatenate((np.arange(100,410,10),np.arange(425,525,25)))
 tvals = np.arange(25,530,100)
 #%% Run aposteriori MDL
 EB_all = np.zeros((len(bvals), Y.shape[-1]))
@@ -511,10 +538,8 @@ print()
 #         print("                   ====>time: %f score: %f" % (time.time()-sstime, MDL[-1]))
 # print("total time: %f" % (time.time()-stime))
 #%% save params and results
-np.savez('fullMDL_addendum_EB_'+task, EBs=EB_all, bvals=bvals)
+np.savez('fullMDL_EB_v2_'+task, EBs=EB_all, bvals=bvals)
 #%% Plot EB hierarchy
-# todo ............. do not proceed before loading the data and combining with the addendum
-# todo then run loop below over the entire data and get the dictionary right
 fig = plt.figure()
 title_str = task
 waxis = np.arange(0, len(EB_all.T))
@@ -529,12 +554,34 @@ for i,b in enumerate(bvals):
         numEvents_b[gran] = []
     numEvents_b[gran].append(b)
     plt.text(0, b, f'{gran}', color=cc[i % len(cc)], fontsize=8)
-plt.ylabel('b value'); plt.xlabel('Word index'); plt.yticks(bvals)
+plt.ylabel('b value'); plt.xlabel('Word index')
+plt.yticks(bvals, fontsize=8)
 plt.title('Event boundaries hierarchy over b values, '+title_str)
 plt.show(block=blck)
-
-# =============================================================================
-# =============================================================================
+#%% For each region, find the b value closest to its num events
+b_per_region = {}
+inaccurate_b = []
+for r in bestNumEvents:
+    numEvents = bestNumEvents[r]['numEvents']-1 # -1 to get num boundaries
+    while numEvents not in numEvents_b:
+        inaccurate_b.append(r)
+        print(f"Number of events {numEvents} for region {bestNumEvents[r]['name']} not found in EB hierarchy")
+        numEvents += 1
+        print(f"Adding {numEvents} instead")
+        continue
+    b_per_region[r] = numEvents_b[numEvents]
+#%% Time correlation vs. the HMM results
+label = b'S_temporal_transverse'
+label_index = [atlas_destrieux['labels'].index(label)]
+regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
+all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
+all_region = all_surf[:,regionInd,:]
+nEvents = bestNumEvents[75]['numEvents']
+ev = brainiak.eventseg.event.EventSegment(nEvents)
+ev.fit(all_region.mean(0).T)
+#%%
+events = np.argmax(ev.segments_[0], axis=1)
+bounds = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0]
 #%%
 #%% load Narrative DS partcipants tsv
 pathDS = r'/home/itzik/Desktop/EventBoundaries/Narratives_DSs'
@@ -548,13 +595,15 @@ excluded = ['sub-001', 'sub-013', 'sub-014', 'sub-021', 'sub-022', 'sub-038', 's
 folders = [f for f in task_participants.participant_id.values if f not in excluded]
 paths = [pathDS + '/' + f +'/func/' + f + '_task-pieman_bold.nii.gz' for f in folders]
 files = [nl.image.load_img(p) for p in paths]
-## todo ............. acces the preprocessed data
-s
+## need: ............. acces the preprocessed data
 #%%
 fsaverage = datasets.fetch_surf_fsaverage()
 atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
 all_TR_surfR = nl.surface.vol_to_surf(all_TR, fsaverage.pial_right)
 all_TR_surfL = nl.surface.vol_to_surf(all_TR, fsaverage.pial_left)
+
+
+#++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #%% Run HMM on the data. First, use average to decide best granularity per region
 side = 'left'
 # downsample the TR data into 76 cortical regions
