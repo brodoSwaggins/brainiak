@@ -467,11 +467,6 @@ Y = np.load('embeddingsPCA_milkyway.npz')['embeddings'].T
 #%% Run MDL with multiple b values and record where events occurred
 # For each word in embeds, save the number of conditions for which it appeared as an event boundary
 # =============================================================================
-#%% open previously saved numEB npy file
-# EBdata = np.load(r'/home/itzik/PycharmProjects/EventBoundaries_deploy/numEB_monkey_narrative_.npz')
-EBdata = np.load('fullMDL_EB_combined_'+task+'.npz')
-EB_all = EBdata['EBs']; bvals = EBdata['bvals'] #; tvals = EBdata['tvals'] ; segPts_all = EBdata['segPts']
-
 #%% open previously saved numEB npy files and combine
 # EBdata1 = np.load(r'fullMDL_EB_milkyway.npz')
 # EB_all1 = EBdata1['EBs']; bvals1 = EBdata1['bvals']; # tvals = EBdata['tvals'] ; segPts_all = EBdata['segPts']
@@ -539,6 +534,13 @@ print()
 # print("total time: %f" % (time.time()-stime))
 #%% save params and results
 np.savez('fullMDL_EB_v2_'+task, EBs=EB_all, bvals=bvals)
+#%%
+#%% open previously saved numEB npy file
+# EBdata = np.load(r'/home/itzik/PycharmProjects/EventBoundaries_deploy/numEB_monkey_narrative_.npz')
+path= r'/home/itzik/PycharmProjects/brainiak/docs/examples/eventseg/'
+EBdata = np.load(path+'fullMDL_EB_101to500_v3_'+task+'.npz')
+EB_all = EBdata['EBs']; bvals = EBdata['bvals'] #; tvals = EBdata['tvals'] ; segPts_all = EBdata['segPts']
+
 #%% Plot EB hierarchy
 fig = plt.figure()
 title_str = task
@@ -558,6 +560,11 @@ plt.ylabel('b value'); plt.xlabel('Word index')
 plt.yticks(bvals, fontsize=8)
 plt.title('Event boundaries hierarchy over b values, '+title_str)
 plt.show(block=blck)
+#%% show support size for each b value
+fig = plt.figure()
+supp = [len(numEvents_b[bb]) for bb in numEvents_b]
+plt.bar(list(numEvents_b.keys()), supp)
+plt.xticks(list(numEvents_b.keys()))
 #%% For each region, find the b value closest to its num events
 b_per_region = {}
 inaccurate_b = []
@@ -576,13 +583,29 @@ label_index = [atlas_destrieux['labels'].index(label)]
 regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
 all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
 all_region = all_surf[:,regionInd,:]
-nEvents = bestNumEvents[75]['numEvents']
-ev = brainiak.eventseg.event.EventSegment(nEvents)
+nEvents = bestNumEvents[75]['numEvents'] ; spMerge = False
+ev = brainiak.eventseg.event.EventSegment(nEvents, split_merge=spMerge)
 ev.fit(all_region.mean(0).T)
 #%%
 events = np.argmax(ev.segments_[0], axis=1)
 bounds = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0]
 #%%
+b = b_per_region[75][0]
+b_ind = np.where(bvals == b)[0][0]
+modelBoundaries = np.where(EB_all[b_ind])[0]
+dt= Y.shape[-1]/all_surf.shape[-1]
+hmmBoundaries = np.array([int(bb*dt) for bb in bounds])
+print("MODEL==========>", modelBoundaries)
+print("HMM==========>", hmmBoundaries)
+#%% Plot both boundaries
+fig = plt.figure()
+title_str = task
+waxis = np.arange(0, len(all_surf[0].T))
+plt.vlines(modelBoundaries, 1.5, 2.5, linewidth=3, alpha=0.7, color='grey', label='Model')
+# plt.vlines(hmmBoundaries, 1.7, 2.4, linewidth=1, color=wa.color_palettes['Darjeeling Limited'][spMerge][1], label='HMM')
+plt.scatter(hmmBoundaries, 2*np.ones_like(hmmBoundaries), marker='|', linewidths=3, s=500, \
+                color=wa.color_palettes['Darjeeling Limited'][spMerge][1], label='HMM'+'+merge'*spMerge)
+plt.legend(); plt.xlim(left=-3); plt.show()
 #%% load Narrative DS partcipants tsv
 pathDS = r'/home/itzik/Desktop/EventBoundaries/Narratives_DSs'
 participants = pd.read_csv(pathDS + r'/participants.tsv', sep='\t')
