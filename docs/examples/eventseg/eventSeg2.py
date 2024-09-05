@@ -589,6 +589,7 @@ ev.fit(all_region.mean(0).T)
 #%%
 events = np.argmax(ev.segments_[0], axis=1)
 bounds = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0]
+eventsVar = np.var(ev.segments_[0], axis=-1)
 #%%
 b = b_per_region[75][0]
 b_ind = np.where(bvals == b)[0][0]
@@ -606,6 +607,13 @@ plt.vlines(modelBoundaries, 1.5, 2.5, linewidth=3, alpha=0.7, color='grey', labe
 plt.scatter(hmmBoundaries, 2*np.ones_like(hmmBoundaries), marker='|', linewidths=3, s=500, \
                 color=wa.color_palettes['Darjeeling Limited'][spMerge][1], label='HMM'+'+merge'*spMerge)
 plt.legend(); plt.xlim(left=-3); plt.show()
+#%% plot model boundaries against HMM var
+fig = plt.figure()
+modelBoundaries_ = np.rint(modelBoundaries/dt).astype(int)
+plt.plot(eventsVar, label='HMM variance', color='grey')
+plt.scatter(modelBoundaries_, eventsVar[modelBoundaries_], color='red', label='Model boundaries')
+plt.scatter(bounds, eventsVar[bounds], color='blue', marker="*", label='HMM boundaries')
+plt.legend(); plt.show()
 #%% load Narrative DS partcipants tsv
 pathDS = r'/home/itzik/Desktop/EventBoundaries/Narratives_DSs'
 participants = pd.read_csv(pathDS + r'/participants.tsv', sep='\t')
