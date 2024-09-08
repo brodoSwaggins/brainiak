@@ -1,3 +1,4 @@
+figsToPDF = []
 import pickle
 import wesanderson as wa
 import sys
@@ -5,6 +6,8 @@ from functools import reduce
 import numpy as np
 from MDL_tools  import *
 from scipy.stats import pearsonr
+from scipy.ndimage import gaussian_filter1d
+from sklearn.decomposition import PCA
 import matplotlib
 bcke = matplotlib.get_backend()
 from matplotlib import pyplot as plt
@@ -344,19 +347,19 @@ plotting.plot_surf_roi(
     threshold=0.0001,
 )
 plt.show(block=blck)
-#%% Find the best number of events for the region
+#%% Find the best number of HMM segments for the region
 all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
 all_region = all_surf[:,regionInd,:]
-num_events = np.arange(32, 42, 1)
+segments_vals = np.arange(32, 42, 1)
 score = [] ; nPerm = 1000 ; w = 5 ; nSubj = len(files)
-within_across_all = np.zeros((len(num_events),nSubj, nPerm+1))
-for i,nEvents in enumerate(num_events):
-    within_across_all[i] = within_across_corr(all_region, nEvents, w, nPerm, verbose=0)
+within_across_all = np.zeros((len(segments_vals),nSubj, nPerm+1))
+for i,nSegments in enumerate(segments_vals):
+    within_across_all[i] = within_across_corr(all_region, nSegments, w, nPerm, verbose=0)
     score.append(within_across_all[i,:,0].mean())
-    print(f"Number of regions: {nEvents}, score: {score[-1]}")
+    print(f"Number of HMM segments: {nSegments}, HMM score: {score[-1]}")
 fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-plt.plot(num_events, score, marker='o', color='black'); plt.title('num of events comparison, {}'.format(label))
-plt.xlabel('Number of events'); plt.ylabel('mean(within-across) correlation'); ax.set_xticks(num_events)
+plt.plot(segments_vals, score, marker='o', color='black'); plt.title('num of events comparison, {}'.format(label))
+plt.xlabel('Number of events'); plt.ylabel('mean(within-across) correlation'); ax.set_xticks(segments_vals)
 plt.axhline(np.max(score), color='black', linestyle='--', linewidth=0.5)
 plt.show(block = blck)
 #%% For the best number of events, violin plot of within-across correlation
@@ -366,32 +369,34 @@ plt.violinplot(within_across_all[best_ind,:,1:].mean(0), showextrema=True) # per
 plt.scatter(1, within_across_all[best_ind,:,0].mean(0), label= 'Real events') # real
 plt.gca().xaxis.set_visible(False)
 plt.ylabel('Within vs across boundary correlation'); plt.legend()
-plt.title('{} {} :\nHeld-out subject HMM with {} events ({} perms)'.format(side, label, num_events[best_ind], nPerm))
+plt.title('{} {} :\nHeld-out subject HMM with {} events ({} perms)'.format(side, label, segments_vals[best_ind], nPerm))
 plt.show(block = blck)
 #%% Loop over all cortical regions
-num_events = np.arange(2, 50, 1)
-HMMscorePerRegion= {}
+segments_vals = np.arange(2, 50, 1)
+bestHMMPerRegion= {}
+allHMMruns_within_acrr= {}
 nPerm = 1000 ; w = 5 ; nSubj = len(files)
 for r in range(1, 17, 1):
     label = atlas_destrieux['labels'][r]
     regionInd = np.where(atlas_destrieux["map_"+side] == r)[0]
     all_region = all_surf[:,regionInd,:]
-    within_across_all = np.zeros((len(num_events),nSubj, nPerm+1))
-    for i,nEvents in enumerate(num_events):
-        within_across_all[i] = within_across_corr(all_region, nEvents, w, nPerm, verbose=0)
+    within_across_all = np.zeros((len(segments_vals),nSubj, nPerm+1))
+    for i,nSegments in enumerate(segments_vals):
+        within_across_all[i] = within_across_corr(all_region, nSegments, w, nPerm, verbose=0)
         score = within_across_all[i,:,0].mean()
-        print(f"Region {r}: {label}, number of regions: {nEvents}, score: {score}")
-        if r not in HMMscorePerRegion or score > HMMscorePerRegion[X]['score']:
+        print(f"Region {r}: {label}, number of segments: {nSegments}, HMM score: {score}")
+        if r not in bestHMMPerRegion or score > bestHMMPerRegion[X]['score']:
             "+++++++++++++++++++++updating best++++++++++++++++++++++++++++"
-            HMMscorePerRegion[r] = {
+            bestHMMPerRegion[r] = {
                 'name': label,
-                'num of regions': nEvents,
+                'nSegments': nSegments,
                 'score': score
             }
-    HMMscorePerRegion.append(within_across_all)
+    allHMMruns_within_acrr[r] = within_across_all
 #%% SAve the results
-np.savez('HMMscorePerRegion_left_w5', HMMscorePerRegion=HMMscorePerRegion)
-#%%
+# np.savez('HMMscorePerRegion_left_w5', HMMscorePerRegion=HMMscorePerRegion)
+np.savez('HMMperRegion_'+side+'_w'+w, bestHMMPerRegion=bestHMMPerRegion, allHMMruns_within_acrr=allHMMruns_within_acrr)
+#%% ++++++++++++++++++++++++++++++ old format
 bestNumEvents= {}
 for r in range(len(HMMscorePerRegion)):
     score = np.max(HMMscorePerRegion[r][:,:,0].mean(-1))
@@ -405,17 +410,17 @@ for r in range(len(HMMscorePerRegion)):
 np.savez('bestNumEvents_left_w5', bestNumEvents=bestNumEvents)
 #%%
 bestNumEvents = np.load('bestNumEvents_left_w5.npz', allow_pickle=True)['bestNumEvents'].item()
-#%%
-plot_nEvents = np.zeros_like(surfL[0][:,0])
-for r in bestNumEvents:
+#%% +++++++++++++++++++++++++++++++++++++ end old format
+plot_nSegs = np.zeros_like(surfL[0][:,0])
+for r in bestHMMPerRegion:
     regionInd = np.where(atlas_destrieux["map_"+side] == r)[0]
     #show region on surface
-    plot_nEvents[regionInd] = bestNumEvents[r]['numEvents']
-    print(r, ": ", bestNumEvents[r]['name'], bestNumEvents[r]['numEvents'])
+    plot_nSegs[regionInd] = bestHMMPerRegion[r]['numEvents'] # ['nSegments']
+    print(r, ": ", bestHMMPerRegion[r]['name'], bestHMMPerRegion[r]['numEvents'])
 #%%
 plotting.plot_surf_roi(
         fsaverage["infl_" + side],
-        roi_map= plot_nEvents,
+        roi_map= plot_nSegs,
         hemi=side,
         view="lateral",
         bg_map=fsaverage["sulc_"+side],
@@ -427,7 +432,7 @@ plt.show(block=blck)
 #%%
 plotting.plot_surf(
         fsaverage["infl_" + side],
-        plot_nEvents,
+        plot_nSegs,
         hemi=side,
         view="lateral",
         bg_map=fsaverage["sulc_"+side],
@@ -437,16 +442,15 @@ plotting.plot_surf(
 )
 plt.show(block=blck)
 #%% find max and min of bestNumEvents
-maxNumEvents = np.max([bestNumEvents[r]['numEvents'] for r in bestNumEvents])
-minNumEvents = np.min([bestNumEvents[r]['numEvents'] for r in bestNumEvents])
-print(f"Max number of events: {maxNumEvents}, Min number of events: {minNumEvents}")
+maxNumSegs = np.max([bestHMMPerRegion[r]['nSegments'] for r in bestHMMPerRegion])
+minNumSegs = np.min([bestHMMPerRegion[r]['nSegments'] for r in bestHMMPerRegion])
+print(f"Max number of events: {maxNumSegs}, Min number of events: {minNumSegs}")
 
 #%% import word embeddings pickle
 dataPath = '/home/itzik/PycharmProjects/brainiak/docs/examples/eventseg/results/milkyway'
 task = 'milkyway'
 hiddenLayer_data = pd.read_pickle(dataPath+'/milkywaygpt2-xl-c_1024.pkl')
 #%% PCA
-from sklearn.decomposition import PCA
 k = 50
 embeddings = np.array([np.array(a[0]) for a in hiddenLayer_data]) # [np.array(a) for a in hiddenLayer_data]
 pca = PCA(n_components=k, whiten=False, random_state=42)
@@ -568,11 +572,11 @@ plt.xticks(list(numEvents_b.keys()))
 #%% For each region, find the b value closest to its num events
 b_per_region = {}
 inaccurate_b = []
-for r in bestNumEvents:
-    numEvents = bestNumEvents[r]['numEvents']-1 # -1 to get num boundaries
+for r in bestHMMPerRegion:
+    numEvents = bestHMMPerRegion[r]['nSegments']-1 # -1 to get num boundaries
     while numEvents not in numEvents_b:
         inaccurate_b.append(r)
-        print(f"Number of events {numEvents} for region {bestNumEvents[r]['name']} not found in EB hierarchy")
+        print(f"Number of events {numEvents} for region {bestHMMPerRegion[r]['name']} not found in EB hierarchy")
         numEvents += 1
         print(f"Adding {numEvents} instead")
         continue
@@ -583,37 +587,63 @@ label_index = [atlas_destrieux['labels'].index(label)]
 regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
 all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
 all_region = all_surf[:,regionInd,:]
-nEvents = bestNumEvents[75]['numEvents'] ; spMerge = False
+nEvents = bestHMMPerRegion[75]['nSegments'] ; spMerge = False
 ev = brainiak.eventseg.event.EventSegment(nEvents, split_merge=spMerge)
 ev.fit(all_region.mean(0).T)
 #%%
-events = np.argmax(ev.segments_[0], axis=1)
-bounds = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0]
-eventsVar = np.var(ev.segments_[0], axis=-1)
+segments = np.argmax(ev.segments_[0], axis=1)
+HMM_ebs = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0] # todo how is this 40 when nSeg=39??
+segmentsVar = np.var(ev.segments_[0], axis=-1)
+#%% Plot the Var as probability of event boundaries
+# todo check other moments (actually we expect distribution to be bimodal next to boundaries)
+fig = plt.figure(); plt.title('Event variance of HMM boundaries')
+plt.hist(segmentsVar[HMM_ebs], bins=10) ; plt.xlabel('variance'); plt.ylabel('EB count')
+plt.show()
+# figsToPDF.append(plt.gcf())
 #%%
 b = b_per_region[75][0]
 b_ind = np.where(bvals == b)[0][0]
-modelBoundaries = np.where(EB_all[b_ind])[0]
-dt= Y.shape[-1]/all_surf.shape[-1]
-hmmBoundaries = np.array([int(bb*dt) for bb in bounds])
-print("MODEL==========>", modelBoundaries)
-print("HMM==========>", hmmBoundaries)
+model_ebs = np.where(EB_all[b_ind])[0]
+dt= Y.shape[-1]/all_surf.shape[-1] # TR duration in words [words per TR]
+HMM_ebs_inText = np.array([int(bb*dt) for bb in HMM_ebs])
+print("MODEL==========>", model_ebs)
+print("HMM==========>", HMM_ebs_inText)
+
+model_1hot = np.zeros(Y.shape[-1]); model_1hot[model_ebs] = 1
+hmm_1hot = np.zeros(Y.shape[-1]); hmm_1hot[HMM_ebs_inText] = 1
+#%% compute correlation between two 1-hot smoothed boundary vectors
+def boundaryCorrelation(modelBoundaries, hmmBoundaries, smoothing_sig = None):
+    if smoothing_sig: # apply Gaussian smoothing
+        modelBoundaries = gaussian_filter1d(modelBoundaries, sigma=smoothing_sig, mode='constant', cval=0)
+        hmmBoundaries = gaussian_filter1d(hmmBoundaries, sigma=smoothing_sig, mode='constant', cval=0)
+        cor = np.pearsonr(modelBoundaries, hmmBoundaries)[0,1]
+    else:
+        cor = np.sum([np.min(np.abs(modelBoundaries - h)) for h in hmmBoundaries])/len(hmmBoundaries)
+    return cor
+#%%
+fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+plt.plot(gaussian_filter1d(model_1hot, sigma=10, mode='constant', cval=0), label='Model', color='red')
+plt.plot(gaussian_filter1d(hmm_1hot, sigma=10, mode='constant', cval=0), label='HMM', color='blue')
+plt.legend(); plt.show()
 #%% Plot both boundaries
 fig = plt.figure()
-title_str = task
 waxis = np.arange(0, len(all_surf[0].T))
-plt.vlines(modelBoundaries, 1.5, 2.5, linewidth=3, alpha=0.7, color='grey', label='Model')
+plt.vlines(model_ebs, 1.5, 2.5, linewidth=3, alpha=0.7, color='grey', label='Model')
 # plt.vlines(hmmBoundaries, 1.7, 2.4, linewidth=1, color=wa.color_palettes['Darjeeling Limited'][spMerge][1], label='HMM')
-plt.scatter(hmmBoundaries, 2*np.ones_like(hmmBoundaries), marker='|', linewidths=3, s=500, \
+plt.scatter(HMM_ebs_inText, 2*np.ones_like(HMM_ebs_inText), marker='|', linewidths=3, s=500, \
                 color=wa.color_palettes['Darjeeling Limited'][spMerge][1], label='HMM'+'+merge'*spMerge)
 plt.legend(); plt.xlim(left=-3); plt.show()
+figsToPDF.append(plt.gcf())
 #%% plot model boundaries against HMM var
 fig = plt.figure()
-modelBoundaries_ = np.rint(modelBoundaries/dt).astype(int)
-plt.plot(eventsVar, label='HMM variance', color='grey')
-plt.scatter(modelBoundaries_, eventsVar[modelBoundaries_], color='red', label='Model boundaries')
-plt.scatter(bounds, eventsVar[bounds], color='blue', marker="*", label='HMM boundaries')
+model_ebs_inTR = np.rint(model_ebs/dt).astype(int)
+plt.plot(segmentsVar, label='HMM variance', color='grey')
+plt.scatter(model_ebs_inTR, segmentsVar[model_ebs_inTR], color='red', label='Model boundaries')
+plt.scatter(HMM_ebs, segmentsVar[HMM_ebs], color='blue', marker="*", label='HMM boundaries')
+for bb in HMM_ebs:
+    plt.plot([bb-1, bb, bb+1], [segmentsVar[bb-1],segmentsVar[bb],segmentsVar[bb+1]], color='blue', linewidth=2)
 plt.legend(); plt.show()
+figsToPDF.append(plt.gcf())
 #%% load Narrative DS partcipants tsv
 pathDS = r'/home/itzik/Desktop/EventBoundaries/Narratives_DSs'
 participants = pd.read_csv(pathDS + r'/participants.tsv', sep='\t')
@@ -682,4 +712,5 @@ for n in numEvents:
 # ev = brainiak.eventseg.event.EventSegment(70)
 # ev.fit(regions.T)
 #%%
+savefig(figsToPDF, os.getcwd(), savename='hmm_mdl_area75', tight=False, prefix="figures")
 
