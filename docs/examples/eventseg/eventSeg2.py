@@ -612,13 +612,14 @@ print("HMM==========>", HMM_ebs_inText)
 model_1hot = np.zeros(Y.shape[-1]); model_1hot[model_ebs] = 1
 hmm_1hot = np.zeros(Y.shape[-1]); hmm_1hot[HMM_ebs_inText] = 1
 #%% compute correlation between two 1-hot smoothed boundary vectors
-def boundaryCorrelation(modelBoundaries, hmmBoundaries, smoothing_sig = None):
+def boundaryCorrelation(vec1, vec2, smoothing_sig = None):
     if smoothing_sig: # apply Gaussian smoothing
-        modelBoundaries = gaussian_filter1d(modelBoundaries, sigma=smoothing_sig, mode='constant', cval=0)
-        hmmBoundaries = gaussian_filter1d(hmmBoundaries, sigma=smoothing_sig, mode='constant', cval=0)
-        cor = np.pearsonr(modelBoundaries, hmmBoundaries)[0,1]
+        smooth1 = gaussian_filter1d(vec1, sigma=smoothing_sig, mode='constant', cval=0)
+        smooth2 = gaussian_filter1d(vec2, sigma=smoothing_sig, mode='constant', cval=0)
+        cor = pearsonr(smooth1, smooth2)
     else:
-        cor = np.sum([np.min(np.abs(modelBoundaries - h)) for h in hmmBoundaries])/len(hmmBoundaries)
+        # cor = np.sum([np.min(np.abs(modelBoundaries - h)) for h in hmmBoundaries])/len(hmmBoundaries)
+        print("sigma missing")
     return cor
 #%%
 fig, ax = plt.subplots(1, 1, figsize=(10, 5))
