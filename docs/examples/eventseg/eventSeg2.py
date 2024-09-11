@@ -21,7 +21,7 @@ except:
     print("Can't run interactive backend, run",matplotlib.get_backend(), "instead")
 smallsize=14; mediumsize=16; largesize=18
 plt.rc('xtick', labelsize=smallsize); plt.rc('ytick', labelsize=smallsize); plt.rc('legend', fontsize=mediumsize)
-plt.rc('figure', titlesize=largesize); plt.rc('axes', labelsize=mediumsize); plt.rc('axes', titlesize=mediumsize)
+plt.rc('figure', titlesize=smallsize); plt.rc('axes', labelsize=mediumsize); plt.rc('axes', titlesize=mediumsize)
 import pandas as pd
 import nilearn as nl
 from nilearn import plotting, image, datasets, masking
@@ -139,7 +139,7 @@ all_TR_surfR = nl.surface.vol_to_surf(all_TR, fsaverage.pial_right)
 all_TR_surfL = nl.surface.vol_to_surf(all_TR, fsaverage.pial_left)
 #%% Plotting the cortical parcellation
 plotting.plot_surf_roi(
-    fsaverage["infl_left"],
+    fsaverage["pial_left"],
     roi_map=atlas_destrieux["map_left"],
     hemi="left",
     view="medial",
@@ -303,12 +303,19 @@ BOLD = masker.inverse_transform(BOLD)
 #%% First subject the same?
 plotting.plot_stat_map(image.index_img(BOLD[1], 0), threshold=1)#, output_file=output_dir / "first_TR.png")
 plt.show(block = blck)
+#%% the story actually started at TR=15, and ended at TR=283. This is true for all the subjects,
+# except Subj18 and Subj27 who started at TR=11 and ended at TR=279
+#%% Extract the story relevant TRS only
+BOLD_sliced = [image.index_img(BOLD[b], slice(15, 283)) for b in range(len(BOLD))]
+BOLD_sliced[17] = image.index_img(BOLD[17], slice(11, 279))
+# BOLD_sliced[27] = image.index_img(BOLD[27], slice(11, 279))
+
 #%% Project to cortical surface
 side = 'left'
 fsaverage = datasets.fetch_surf_fsaverage()
 atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
-surfL = [nl.surface.vol_to_surf(s, fsaverage.pial_left) for s in BOLD]
-surfR = [nl.surface.vol_to_surf(s, fsaverage.pial_right) for s in BOLD]
+surfL = [nl.surface.vol_to_surf(s, fsaverage.pial_left) for s in BOLD_sliced]
+surfR = [nl.surface.vol_to_surf(s, fsaverage.pial_right) for s in BOLD_sliced]
 #%% plot on surf
 for i in range(1, 4, 1):
     tr = i*10
@@ -329,7 +336,8 @@ for i in range(1, 4, 1):
 
 #%%  Fit Cortical with held-out subjects, focus on one region
 label =   b'G_pariet_inf-Angular'#b'G_temp_sup-Lateral' # b'S_temporal_transverse' # Heschl's gyri - primary auditory cortex (Brodmann areas 41 and 42)
-label = b'S_temporal_transverse'
+# label = b'S_temporal_transverse'
+label = b'G_temp_sup-Lateral'
 label_index = [atlas_destrieux['labels'].index(label)]
 regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
 #show region on surface
@@ -350,7 +358,7 @@ plt.show(block=blck)
 #%% Find the best number of HMM segments for the region
 all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
 all_region = all_surf[:,regionInd,:]
-segments_vals = np.arange(32, 42, 1)
+segments_vals = np.arange(2, 15, 1)
 score = [] ; nPerm = 1000 ; w = 5 ; nSubj = len(files)
 within_across_all = np.zeros((len(segments_vals),nSubj, nPerm+1))
 for i,nSegments in enumerate(segments_vals):
@@ -385,7 +393,7 @@ for r in range(1, 17, 1):
         within_across_all[i] = within_across_corr(all_region, nSegments, w, nPerm, verbose=0)
         score = within_across_all[i,:,0].mean()
         print(f"Region {r}: {label}, number of segments: {nSegments}, HMM score: {score}")
-        if r not in bestHMMPerRegion or score > bestHMMPerRegion[X]['score']:
+        if r not in bestHMMPerRegion or score > bestHMMPerRegion[r]['score']:
             "+++++++++++++++++++++updating best++++++++++++++++++++++++++++"
             bestHMMPerRegion[r] = {
                 'name': label,
@@ -568,7 +576,7 @@ plt.show(block=blck)
 fig = plt.figure()
 supp = [len(numEvents_b[bb]) for bb in numEvents_b]
 plt.bar(list(numEvents_b.keys()), supp)
-plt.xticks(list(numEvents_b.keys()))
+plt.xticks(list(numEvents_b.keys())); plt.xlabel('Number of events'); plt.ylabel('Number of b values')
 #%% For each region, find the b value closest to its num events
 b_per_region = {}
 inaccurate_b = []
@@ -581,23 +589,77 @@ for r in bestHMMPerRegion:
         print(f"Adding {numEvents} instead")
         continue
     b_per_region[r] = numEvents_b[numEvents]
-#%% Time correlation vs. the HMM results
+##########################################################################################
+#%% #######################Time correlation vs. the HMM results###########################
+##########################################################################################
+# the story actually started at TR=15, and ended at TR=283. For all the subjects.
+# except Subj18 and Subj27 who started at TR=11 and ended at TR=279
 label = b'S_temporal_transverse'
 label_index = [atlas_destrieux['labels'].index(label)]
 regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
 all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
 all_region = all_surf[:,regionInd,:]
-nEvents = bestHMMPerRegion[75]['nSegments'] ; spMerge = False
+nEvents = bestHMMPerRegion[75]['numSegments'] ; spMerge = False
 ev = brainiak.eventseg.event.EventSegment(nEvents, split_merge=spMerge)
 ev.fit(all_region.mean(0).T)
 #%%
 segments = np.argmax(ev.segments_[0], axis=1)
 HMM_ebs = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0] # todo how is this 40 when nSeg=39??
 segmentsVar = np.var(ev.segments_[0], axis=-1)
-#%% Plot the Var as probability of event boundaries
-# todo check other moments (actually we expect distribution to be bimodal next to boundaries)
-fig = plt.figure(); plt.title('Event variance of HMM boundaries')
-plt.hist(segmentsVar[HMM_ebs], bins=10) ; plt.xlabel('variance'); plt.ylabel('EB count')
+modal_diffs = []
+for i in range(len(ev.segments_[0])):
+    probabilities = ev.segments_[0][i]
+    sorted_probabilities = np.sort(probabilities)[::-1]  # Sort in descending order
+    modal_diffs.append(sorted_probabilities[0] - sorted_probabilities[1])
+#%% Animation of probability distribution
+# Function to update the plot for each frame
+length = 0 ; running_diff = []
+def pop_all(l):
+    r, l[:] = l[:], []
+    return r
+def init_func():
+    ax.clear()
+    ax.set_ylim(0, 1)
+    ax.set_title('Time Point: 0')
+    ax.set_xlabel('States')
+    ax.set_ylabel('Probability')
+    return bars
+def update(frame):
+    ax.clear()
+    probabilities = ev.segments_[0][frame]
+    sorted_probabilities = np.sort(probabilities)[::-1]  # Sort in descending order
+    diff  = sorted_probabilities[0] - sorted_probabilities[1]
+    running_mean = 0 if not running_diff else np.mean(running_diff)
+    # print(frame, running_mean, diff)
+    # print("===", sorted_probabilities[:5], "======" )
+    running_diff.append(diff)
+    if frame in HMM_ebs:
+        cc = 'blue'
+        pop_all(running_diff)
+    else:
+        cc = 'grey'
+    ax.bar(range(nEvents), sorted_probabilities, color=cc)
+    ax.set_ylim(0, 1)  # Ensure the y-axis stays consistent
+    # ax.set_yscale('log')
+    # ax.axhline(running_mean, color='red', linestyle='--', label=f'mean diff={running_mean:.3f}')
+    ax.axhline(diff, color='black', linestyle='--', label=f'diff={diff:.3f}')
+    ax.set_title(f'Time Point: {frame+1}')
+    ax.set_xlabel('States'); plt.legend()
+    ax.set_ylabel('Probability')
+fig, ax = plt.subplots()
+bars = ax.bar(range(nEvents), np.zeros(nEvents))
+
+# Create the animation
+anim =FuncAnimation(fig, update, frames=100, init_func= init_func, repeat=False, interval=250)
+
+# Save or display the animation
+plt.show()
+#%% Plot the measure as probability of event boundaries
+measure = np.array(modal_diffs); title = 'Modal difference'
+# measure = segmentsVar ; title = 'segment variance'
+fig = plt.figure(); plt.title(title+' of HMM boundaries')
+plt.hist(measure[HMM_ebs], bins=10) ; plt.xlabel(title); plt.ylabel('EB count')
+plt.hist(measure[~HMM_ebs], bins=10, alpha=0.5)
 plt.show()
 # figsToPDF.append(plt.gcf())
 #%%
@@ -635,14 +697,16 @@ plt.scatter(HMM_ebs_inText, 2*np.ones_like(HMM_ebs_inText), marker='|', linewidt
                 color=wa.color_palettes['Darjeeling Limited'][spMerge][1], label='HMM'+'+merge'*spMerge)
 plt.legend(); plt.xlim(left=-3); plt.show()
 figsToPDF.append(plt.gcf())
-#%% plot model boundaries against HMM var
-fig = plt.figure()
+#%% plot model boundaries against some measure of likelihhod to transition
+fig = plt.figure(figsize=(12, 5))
+measure = np.array(modal_diffs); title = 'modal difference'
+# measure = segmentsVar; title = 'segment variance'
 model_ebs_inTR = np.rint(model_ebs/dt).astype(int)
-plt.plot(segmentsVar, label='HMM variance', color='grey')
-plt.scatter(model_ebs_inTR, segmentsVar[model_ebs_inTR], color='red', label='Model boundaries')
-plt.scatter(HMM_ebs, segmentsVar[HMM_ebs], color='blue', marker="*", label='HMM boundaries')
-for bb in HMM_ebs:
-    plt.plot([bb-1, bb, bb+1], [segmentsVar[bb-1],segmentsVar[bb],segmentsVar[bb+1]], color='blue', linewidth=2)
+plt.plot(measure, label=title, color='grey'); plt.xlabel('Time point'); plt.ylabel(title)
+# plt.scatter(model_ebs_inTR, measure[model_ebs_inTR], color='red', label='Model boundaries')
+plt.scatter(HMM_ebs, measure[HMM_ebs], color='blue', marker="*", label='HMM boundaries')
+# for bb in HMM_ebs:
+#     plt.plot([bb-1, bb, bb+1], [measure[bb-1],measure[bb],measure[bb+1]], color='blue', linewidth=2)
 plt.legend(); plt.show()
 figsToPDF.append(plt.gcf())
 #%% load Narrative DS partcipants tsv
@@ -713,5 +777,5 @@ for n in numEvents:
 # ev = brainiak.eventseg.event.EventSegment(70)
 # ev.fit(regions.T)
 #%%
-savefig(figsToPDF, os.getcwd(), savename='hmm_mdl_area75', tight=False, prefix="figures")
+savefig(figsToPDF, os.getcwd(), savename='modal_diff', tight=False, prefix="figures")
 
