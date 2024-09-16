@@ -403,7 +403,7 @@ for r in range(1, 17, 1):
     allHMMruns_within_acrr[r] = within_across_all
 #%% SAve the results
 # np.savez('HMMscorePerRegion_left_w5', HMMscorePerRegion=HMMscorePerRegion)
-np.savez('HMMperRegion_'+side+'_w'+w, bestHMMPerRegion=bestHMMPerRegion, allHMMruns_within_acrr=allHMMruns_within_acrr)
+np.savez('HMMperRegionSliced_'+side+'_w'+str(w), bestHMMPerRegion=bestHMMPerRegion, allHMMruns_within_acrr=allHMMruns_within_acrr)
 #%% ++++++++++++++++++++++++++++++ old format
 bestNumEvents= {}
 for r in range(len(HMMscorePerRegion)):
@@ -658,10 +658,10 @@ plt.show()
 measure = np.array(modal_diffs); title = 'Modal difference'
 # measure = segmentsVar ; title = 'segment variance'
 fig = plt.figure(); plt.title(title+' of HMM boundaries')
-plt.hist(measure[HMM_ebs], bins=10) ; plt.xlabel(title); plt.ylabel('EB count')
-plt.hist(measure[~HMM_ebs], bins=10, alpha=0.5)
-plt.show()
-# figsToPDF.append(plt.gcf())
+plt.hist(measure[HMM_ebs], bins=10, label='boundary') ; plt.xlabel(title); plt.ylabel('EB count')
+plt.hist(measure[~HMM_ebs], bins=10, alpha=0.5, label='mid-segment')
+plt.legend();plt.show()
+figsToPDF.append(plt.gcf())
 #%%
 b = b_per_region[75][0]
 b_ind = np.where(bvals == b)[0][0]
@@ -673,6 +673,18 @@ print("HMM==========>", HMM_ebs_inText)
 
 model_1hot = np.zeros(Y.shape[-1]); model_1hot[model_ebs] = 1
 hmm_1hot = np.zeros(Y.shape[-1]); hmm_1hot[HMM_ebs_inText] = 1
+#%% Time lock event voundaries to word onset TR
+tokens_ = np.load('milkyWayTokens.npy')
+tokens = [t for t in tokens_ if t not in string.punctuation]
+textTiming_data = pd.read_excel('textTiming_by sentence_1.xlsx', sheet_name=3)
+mw_indx = np.arange(1,265,4) # row numbers corresponding to millyWay story
+word_timings = textTiming_data.iloc[mw_indx].iloc[:,7:]
+#%% count words
+words = []
+for i, row in word_timings.iterrows():
+    words.extend(row.iloc[2:].dropna().values)
+    # print(row.iloc[2:].dropna().values)
+
 #%% compute correlation between two 1-hot smoothed boundary vectors
 def boundaryCorrelation(vec1, vec2, smoothing_sig = None):
     if smoothing_sig: # apply Gaussian smoothing
@@ -685,8 +697,14 @@ def boundaryCorrelation(vec1, vec2, smoothing_sig = None):
     return cor
 #%%
 fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-plt.plot(gaussian_filter1d(model_1hot, sigma=10, mode='constant', cval=0), label='Model', color='red')
-plt.plot(gaussian_filter1d(hmm_1hot, sigma=10, mode='constant', cval=0), label='HMM', color='blue')
+gaussSig = 5
+model_gauss = gaussian_filter1d(model_1hot, sigma=gaussSig, mode='constant', cval=0)
+hmm_gauss = gaussian_filter1d(hmm_1hot, sigma=gaussSig, mode='constant', cval=0)
+plt.plot(model_gauss, label='Model', color='red')
+plt.plot(hmm_gauss, label='HMM', color='blue')
+# add 1hot vectors as bars in the background
+plt.bar(range(len(model_1hot)), model_1hot*max(model_gauss), color='red', alpha=0.2, width=1)
+plt.bar(range(len(hmm_1hot)), hmm_1hot*max(model_gauss), color='blue', alpha=0.2, width=1)
 plt.legend(); plt.show()
 #%% Plot both boundaries
 fig = plt.figure()
