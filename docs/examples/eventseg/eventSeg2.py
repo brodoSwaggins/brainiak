@@ -594,8 +594,118 @@ for r in bestHMMPerRegion:
 ##########################################################################################
 #%% #######################Time correlation vs. the HMM results###########################
 ##########################################################################################
-# the story actually started at TR=15, and ended at TR=283. For all the subjects.
-# except Subj18 and Subj27 who started at TR=11 and ended at TR=279
+#%% To compare to MDL model boundaries, we first need to transform MDL boundaries to TRs
+textTiming_data = pd.read_excel('textTiming_by sentence_1.xlsx', sheet_name=3)
+mw_indx = np.arange(1,265,4) # row numbers corresponding to millyWay story
+word_timings = textTiming_data.iloc[mw_indx].iloc[:,7:]
+words = [] ; sentence_len = [] ; sentence_onsets = []; sentence_offsets = []
+onsets = [] ; words_onsets = []
+for i, row in word_timings.iterrows():
+    row_words = row.iloc[2:].dropna().values
+    sentence_len.append(len(row_words))
+    on  = row['from(TR)'] ; off = row['to(TR)']
+    sentence_onsets.append(row['from(TR)']) ; sentence_offsets.append(row['to(TR)'])
+    dt = (off - on+1)/len(row_words)
+    for j,w in enumerate(row_words):
+        w = w.lower()
+        while len(w)>0 and w[-1] not in string.ascii_letters:
+            w = w[:-1]
+            print(w)
+        while len(w)>0 and w[0] not in string.ascii_letters:
+            w = w[1:]
+            print(w)
+        onsets.append(on + j*dt)
+        words_onsets.append([w, on + j*dt])
+        words.append(w)
+    assert(on + j*dt - (off+1-dt) < 0.01)
+for k,w in enumerate(words):
+    assert(w==words_onsets[k][0])
+# fix some anomalies
+if words[108] == 'lamur':
+    words[108] = 'lamour'
+    words_onsets[108][0] = 'lamour'
+if words[61] == 'consolt':
+    words[61] = 'consult'
+    words_onsets[61][0] = 'consult'
+if words[508] == 'everybody':
+    words[508] = 'everyone'
+    words_onsets[508][0] = 'everyone'
+if words[990] == 'vender':
+    words[990] = 'vending'
+    words_onsets[990][0] = 'vending'
+
+# also added the word 'the' before 'hypnosis' at index 553 row
+# fixed typo in word 639
+# added a word in 894-895 (I have instead of I've)
+#%%
+emptyTokens = []
+tokens_ = np.load('milkyWayTokens.npy')
+tokens = [t.lower() for t in tokens_ if t not in string.punctuation] # remove single char tokens who are just punctuation
+for i, tt in enumerate(tokens):
+    while len(tt) > 0 and tt[0] not in string.ascii_letters:
+        tt = tt[1:]
+    while len(tt) > 0 and tt[-1] not in string.ascii_letters:
+        tt = tt[:-1]
+    if len(tt) < 1:
+        emptyTokens.append(i)
+    tokens[i] = tt
+#%%
+def longest_common_substring(s1: str, s2: str):
+    if len(s1) < 1 and len(s2) < 1:
+        return "", 0, 0
+    # Initialize a matrix to store the lengths of longest common suffixes
+    n1, n2 = len(s1), len(s2)
+    # Matrix to store the lengths of common suffixes of substrings
+    dp = [[0] * (n2 + 1) for _ in range(n1 + 1)]
+
+    longest_len = 0  # Length of the longest common substring
+    end_s1 = 0  # End index of the longest common substring in s1
+
+    # Fill dp matrix
+    for i in range(1, n1 + 1):
+        for j in range(1, n2 + 1):
+            if s1[i - 1] == s2[j - 1]:
+                dp[i][j] = dp[i - 1][j - 1] + 1
+                if dp[i][j] > longest_len:
+                    longest_len = dp[i][j]
+                    end_s1 = i  # Store the end index of the longest common substring in s1
+
+    # If no common substring is found
+    if longest_len == 0:
+        return "", -1, -1
+
+    # Starting index in s1
+    start_s1 = end_s1 - longest_len
+    # Find the starting index in s2 using the length of the substring
+    start_s2 = s2.find(s1[start_s1:end_s1])
+
+    # Return the longest common substring and starting indices in s1 and s2
+    return s1[start_s1:end_s1], start_s1, start_s2
+#%% Time lock tokens in Y according to word onset TR
+tokens_timings = np.zeros(Y.shape[-1]) #skips first token/word
+k = 1 ; token_word = []
+for i, tt in enumerate(tokens[1:]):
+    if len(tt) < 1 and len(words[k]) >= 1: # stick empty token onto previous word
+        tokens_timings[i] = words_onsets[k-1][1]
+        token_word.append([tt, words_onsets[k-1][0]])
+        continue
+    sub, start_w, start_t = longest_common_substring(words[k], tt)
+    # print("=====", sub, start_w, start_t, "=====")
+    if (len(sub) < len(tt)) or (start_t != 0):
+        print(f"pos {i+1} Word: {words[k]}, but token: {tt} doesn't match")
+        print(f"perhaps word: {words[k-1]} ?")
+        k -= 1
+        sub, start_w, start_t = longest_common_substring(words[k], tt)
+        # print("             --------", sub, start_w, start_t, "-----")
+        if (len(sub) < len(tt) ) or (start_t != 0):
+            print(f"ERROR: token {tt} in pos {i} matches neither {words[k+1]} nor predecessor {words[k]}")
+            print("context tokens: ", np.array(tokens)[i-2:i+2], "// words:", np.array(words)[k-2:k+2])
+            break
+    tokens_timings[i] = words_onsets[k][1]
+    token_word.append([tt, words_onsets[k][0]])
+    k += 1
+#%%
+#
 label = b'S_temporal_transverse'
 label_index = [atlas_destrieux['labels'].index(label)]
 regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
@@ -606,7 +716,7 @@ ev = brainiak.eventseg.event.EventSegment(nEvents, split_merge=spMerge)
 ev.fit(all_region.mean(0).T)
 #%%
 segments = np.argmax(ev.segments_[0], axis=1)
-HMM_ebs = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0] # todo how is this 40 when nSeg=39??
+HMM_ebs = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0] # todo note: Returns to event 37 amidst 38
 segmentsVar = np.var(ev.segments_[0], axis=-1)
 modal_diffs = []
 for i in range(len(ev.segments_[0])):
@@ -664,68 +774,23 @@ plt.hist(measure[HMM_ebs], bins=10, label='boundary') ; plt.xlabel(title); plt.y
 plt.hist(measure[~HMM_ebs], bins=10, alpha=0.5, label='mid-segment')
 plt.legend();plt.show()
 figsToPDF.append(plt.gcf())
-#%%
+#%% Extract relevant MDL EBs
 b = b_per_region[75][0]
 b_ind = np.where(bvals == b)[0][0]
 model_ebs = np.where(EB_all[b_ind])[0]
+model_ebs_in_TR_space = tokens_timings[model_ebs]
+# round down to nearest TR (commented out: round to nearest)
+model_ebs_in_TR = np.array([int(bb) for bb in model_ebs_in_TR_space]) #  np.rint(model_ebs_in_TR_space).astype(int)
+
 dt= Y.shape[-1]/all_surf.shape[-1] # TR duration in words [words per TR]
-HMM_ebs_inText = np.array([int(bb*dt) for bb in HMM_ebs])
-print("MODEL==========>", model_ebs)
-print("HMM==========>", HMM_ebs_inText)
-
-model_1hot = np.zeros(Y.shape[-1]); model_1hot[model_ebs] = 1
-hmm_1hot = np.zeros(Y.shape[-1]); hmm_1hot[HMM_ebs_inText] = 1
-#%% Time lock event boundaries to word onset TR
-textTiming_data = pd.read_excel('textTiming_by sentence_1.xlsx', sheet_name=3)
-mw_indx = np.arange(1,265,4) # row numbers corresponding to millyWay story
-word_timings = textTiming_data.iloc[mw_indx].iloc[:,7:]
-words = [] ; sentence_len = [] ; sentence_onsets = []; sentence_offsets = []
-onsets = [] ; words_onsets = []
-for i, row in word_timings.iterrows():
-    row_words = row.iloc[2:].dropna().values
-    sentence_len.append(len(row_words))
-    on  = row['from(TR)'] ; off = row['to(TR)']
-    sentence_onsets.append(row['from(TR)']) ; sentence_offsets.append(row['to(TR)'])
-    dt = (off - on+1)/len(row_words)
-    for j,w in enumerate(row_words):
-        w = w.lower()
-        while len(w)>0 and w[-1] not in string.ascii_letters:
-            w = w[:-1]
-            print(w)
-        while len(w)>0 and w[0] not in string.ascii_letters:
-            w = w[1:]
-            print(w)
-        onsets.append(on + j*dt)
-        words_onsets.append([w, on + j*dt])
-        words.append(w)
-    assert(on + j*dt - (off+1-dt) < 0.01)
-
-w#%%
+# HMM_ebs_inText = np.array([int(bb*dt) for bb in HMM_ebs])
+print(f"MODEL====={len(model_ebs_in_TR)}=====>", model_ebs_in_TR)
+print(f"HMM====={len(HMM_ebs)}=====>", HMM_ebs)
 #%%
-remove = []
-tokens_ = np.load('milkyWayTokens.npy')
-tokens = [t.lower() for t in tokens_ if t not in string.punctuation]
-for i, tt in enumerate(tokens):
-    if tt[0] not in string.ascii_letters:
-        tokens[i] = tt[1:]
-        if len(tokens[i])<1 or tokens[i][0] not in string.ascii_letters:
-            print("single:", tt)
-            remove.append(i)
-#%%
-count = 0
-legit = []
-for tt in tokens_:
-    if tt in string.punctuation:
-        # print("punc: ", tt)
-        count += 1
-    else:
-        tt1 = tt[1:]
-        if len(tt1) < 1 and tt[0] not in string.ascii_letters :
-            print("single:" , tt)
-            count+=1
-        else:
-            legit.append(tt)
+model_1hot = np.zeros(all_surf.shape[-1]); model_1hot[model_ebs_in_TR] = 1
+hmm_1hot = np.zeros(all_surf.shape[-1]); hmm_1hot[HMM_ebs] = 1
 #%% compute correlation between two 1-hot smoothed boundary vectors
+
 def boundaryCorrelation(vec1, vec2, smoothing_sig = None):
     if smoothing_sig: # apply Gaussian smoothing
         smooth1 = gaussian_filter1d(vec1, sigma=smoothing_sig, mode='constant', cval=0)
@@ -735,7 +800,8 @@ def boundaryCorrelation(vec1, vec2, smoothing_sig = None):
         # cor = np.sum([np.min(np.abs(modelBoundaries - h)) for h in hmmBoundaries])/len(hmmBoundaries)
         print("sigma missing")
     return cor
-#%%
+#%% the story actually started at TR=15, and ended at TR=283. For all the subjects.
+# except Subj18 and Subj27 who started at TR=11 and ended at TR=279
 fig, ax = plt.subplots(1, 1, figsize=(10, 5))
 gaussSig = 5
 model_gauss = gaussian_filter1d(model_1hot, sigma=gaussSig, mode='constant', cval=0)
@@ -749,22 +815,21 @@ plt.legend(); plt.show()
 #%% Plot both boundaries
 fig = plt.figure()
 waxis = np.arange(0, len(all_surf[0].T))
-plt.vlines(model_ebs, 1.5, 2.5, linewidth=3, alpha=0.7, color='grey', label='Model')
+plt.vlines(model_ebs_in_TR, 1.5, 2.5, linewidth=3, alpha=0.7, color='grey', label='Model')
 # plt.vlines(hmmBoundaries, 1.7, 2.4, linewidth=1, color=wa.color_palettes['Darjeeling Limited'][spMerge][1], label='HMM')
-plt.scatter(HMM_ebs_inText, 2*np.ones_like(HMM_ebs_inText), marker='|', linewidths=3, s=500, \
+plt.scatter(HMM_ebs, 2*np.ones_like(HMM_ebs), marker='|', linewidths=3, s=500, \
                 color=wa.color_palettes['Darjeeling Limited'][spMerge][1], label='HMM'+'+merge'*spMerge)
 plt.legend(); plt.xlim(left=-3); plt.show()
 figsToPDF.append(plt.gcf())
 #%% plot model boundaries against some measure of likelihhod to transition
 fig = plt.figure(figsize=(12, 5))
 measure = np.array(modal_diffs); title = 'modal difference'
-# measure = segmentsVar; title = 'segment variance'
-model_ebs_inTR = np.rint(model_ebs/dt).astype(int)
+# measure = segmentsVar; title = 'segment variance'model_ebs_inTR = np.rint(model_ebs/dt).astype(int)
 plt.plot(measure, label=title, color='grey'); plt.xlabel('Time point'); plt.ylabel(title)
-# plt.scatter(model_ebs_inTR, measure[model_ebs_inTR], color='red', label='Model boundaries')
+plt.scatter(model_ebs_in_TR, measure[model_ebs_in_TR], color='red', label='Model boundaries')
 plt.scatter(HMM_ebs, measure[HMM_ebs], color='blue', marker="*", label='HMM boundaries')
-# for bb in HMM_ebs:
-#     plt.plot([bb-1, bb, bb+1], [measure[bb-1],measure[bb],measure[bb+1]], color='blue', linewidth=2)
+for bb in HMM_ebs:
+    plt.plot([bb-1, bb, bb+1], [measure[bb-1],measure[bb],measure[bb+1]], color='blue', linewidth=2)
 plt.legend(); plt.show()
 figsToPDF.append(plt.gcf())
 #%% load Narrative DS partcipants tsv
