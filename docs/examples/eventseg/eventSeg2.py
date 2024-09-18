@@ -1,3 +1,5 @@
+import string
+
 figsToPDF = []
 import pickle
 import wesanderson as wa
@@ -673,18 +675,56 @@ print("HMM==========>", HMM_ebs_inText)
 
 model_1hot = np.zeros(Y.shape[-1]); model_1hot[model_ebs] = 1
 hmm_1hot = np.zeros(Y.shape[-1]); hmm_1hot[HMM_ebs_inText] = 1
-#%% Time lock event voundaries to word onset TR
-tokens_ = np.load('milkyWayTokens.npy')
-tokens = [t for t in tokens_ if t not in string.punctuation]
+#%% Time lock event boundaries to word onset TR
 textTiming_data = pd.read_excel('textTiming_by sentence_1.xlsx', sheet_name=3)
 mw_indx = np.arange(1,265,4) # row numbers corresponding to millyWay story
 word_timings = textTiming_data.iloc[mw_indx].iloc[:,7:]
-#%% count words
-words = []
+words = [] ; sentence_len = [] ; sentence_onsets = []; sentence_offsets = []
+onsets = [] ; words_onsets = []
 for i, row in word_timings.iterrows():
-    words.extend(row.iloc[2:].dropna().values)
-    # print(row.iloc[2:].dropna().values)
+    row_words = row.iloc[2:].dropna().values
+    sentence_len.append(len(row_words))
+    on  = row['from(TR)'] ; off = row['to(TR)']
+    sentence_onsets.append(row['from(TR)']) ; sentence_offsets.append(row['to(TR)'])
+    dt = (off - on+1)/len(row_words)
+    for j,w in enumerate(row_words):
+        w = w.lower()
+        while len(w)>0 and w[-1] not in string.ascii_letters:
+            w = w[:-1]
+            print(w)
+        while len(w)>0 and w[0] not in string.ascii_letters:
+            w = w[1:]
+            print(w)
+        onsets.append(on + j*dt)
+        words_onsets.append([w, on + j*dt])
+        words.append(w)
+    assert(on + j*dt - (off+1-dt) < 0.01)
 
+w#%%
+#%%
+remove = []
+tokens_ = np.load('milkyWayTokens.npy')
+tokens = [t.lower() for t in tokens_ if t not in string.punctuation]
+for i, tt in enumerate(tokens):
+    if tt[0] not in string.ascii_letters:
+        tokens[i] = tt[1:]
+        if len(tokens[i])<1 or tokens[i][0] not in string.ascii_letters:
+            print("single:", tt)
+            remove.append(i)
+#%%
+count = 0
+legit = []
+for tt in tokens_:
+    if tt in string.punctuation:
+        # print("punc: ", tt)
+        count += 1
+    else:
+        tt1 = tt[1:]
+        if len(tt1) < 1 and tt[0] not in string.ascii_letters :
+            print("single:" , tt)
+            count+=1
+        else:
+            legit.append(tt)
 #%% compute correlation between two 1-hot smoothed boundary vectors
 def boundaryCorrelation(vec1, vec2, smoothing_sig = None):
     if smoothing_sig: # apply Gaussian smoothing
