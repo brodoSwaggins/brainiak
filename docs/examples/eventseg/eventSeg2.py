@@ -9,6 +9,7 @@ import numpy as np
 from MDL_tools  import *
 from scipy.stats import pearsonr
 from scipy.ndimage import gaussian_filter1d
+from scipy.signal import correlate
 from sklearn.decomposition import PCA
 import matplotlib
 bcke = matplotlib.get_backend()
@@ -93,7 +94,7 @@ def within_across_corr(D, nEvents, w=5, nPerm=1000, verbose=0, rsd = 0):
         plt.ylabel('Within vs across boundary correlation')
         plt.title('{} {} :\nHeld-out subject HMM with {} events ({} perms)'.format(side, label, nEvents, nPerm))
         plt.show(block=blck)
-    return within_across
+    return within_across, ev
 
 #%% Example use - single subject
 if sys.platform == 'linux':
@@ -392,14 +393,17 @@ for r in range(1, 17, 1):
     all_region = all_surf[:,regionInd,:]
     within_across_all = np.zeros((len(segments_vals),nSubj, nPerm+1))
     for i,nSegments in enumerate(segments_vals):
-        within_across_all[i] = within_across_corr(all_region, nSegments, w, nPerm, verbose=0)
+        within_across_all[i], ev = within_across_corr(all_region, nSegments, w, nPerm, verbose=0)
         score = within_across_all[i,:,0].mean()
         print(f"Region {r}: {label}, number of segments: {nSegments}, HMM score: {score}")
         if r not in bestHMMPerRegion or score > bestHMMPerRegion[r]['score']:
             "+++++++++++++++++++++updating best++++++++++++++++++++++++++++"
+            segments = np.argmax(ev.segments_[0], axis=1)
+            HMM_ebs = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0]
             bestHMMPerRegion[r] = {
                 'name': label,
                 'nSegments': nSegments,
+                'nBoundaries': len(HMM_ebs),
                 'score': score
             }
     allHMMruns_within_acrr[r] = within_across_all
@@ -583,7 +587,7 @@ plt.xticks(list(numEvents_b.keys())); plt.xlabel('Number of events'); plt.ylabel
 b_per_region = {}
 inaccurate_b = []
 for r in bestHMMPerRegion:
-    numEvents = bestHMMPerRegion[r]['nSegments']-1 # -1 to get num boundaries
+    numEvents = bestHMMPerRegion[r]['nBoundaries']
     while numEvents not in numEvents_b:
         inaccurate_b.append(r)
         print(f"Number of events {numEvents} for region {bestHMMPerRegion[r]['name']} not found in EB hierarchy")
@@ -594,7 +598,7 @@ for r in bestHMMPerRegion:
 ##########################################################################################
 #%% #######################Time correlation vs. the HMM results###########################
 ##########################################################################################
-#%% To compare to MDL model boundaries, we first need to transform MDL boundaries to TRs
+#%% To compare to MDL model boundaries, we first need to transform MDL boundaries from story to TRs
 textTiming_data = pd.read_excel('textTiming_by sentence_1.xlsx', sheet_name=3)
 mw_indx = np.arange(1,265,4) # row numbers corresponding to millyWay story
 word_timings = textTiming_data.iloc[mw_indx].iloc[:,7:]
@@ -704,17 +708,52 @@ for i, tt in enumerate(tokens[1:]):
     tokens_timings[i] = words_onsets[k][1]
     token_word.append([tt, words_onsets[k][0]])
     k += 1
+#%% Per region, find relevnat MDL boundaries and compare
+all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
+spMerge = False ; MRI_offset = 15 #todo delete after slicing data
+correlation_results = {}
+for label in atlas_destrieux['labels'][1:]:
+    # fMRI part
+    label_index = [atlas_destrieux['labels'].index(label)][0]
+    regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
+    all_region = all_surf[:,regionInd,:]
+    assert (label == bestHMMPerRegion[label_index]['name'])
+    print(">>>>>>>>Region: ", label)
+    nSeg = bestHMMPerRegion[label_index]['numEvents']#['numSegments']
+    # todo replace with saving best ev object in bestHMMperRegion
+    ev = brainiak.eventseg.event.EventSegment(nSeg, split_merge=spMerge)
+    ev.fit(all_region.mean(0).T)
+    segments = np.argmax(ev.segments_[0], axis=1)
+    HMM_ebs = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0]
+    # MDL part
+    b = b_per_region[label_index][0]
+    b_ind = np.where(bvals == b)[0][0]
+    model_ebs = np.where(EB_all[b_ind])[0]
+    model_ebs_in_TR_space = tokens_timings[model_ebs]
+    # round down to nearest TR (commented out: round to nearest)
+    model_ebs_in_TR = np.array([int(bb) for bb in model_ebs_in_TR_space]) + MRI_offset  # np.rint(model_ebs_in_TR_space).astype(int)
+    print(f"        MODEL====={len(model_ebs_in_TR)}=====>", model_ebs_in_TR)
+    print(f"        HMM====={len(HMM_ebs)}=====>", HMM_ebs)
+    model_1hot = np.zeros(all_surf.shape[-1]);  model_1hot[model_ebs_in_TR] = 1
+    hmm_1hot = np.zeros(all_surf.shape[-1]); hmm_1hot[HMM_ebs] = 1
+    # compute cross correlation between model and HMM boundaries 1 hot vectors
+    cor = correlate(model_1hot, hmm_1hot)
+    correlation_results[label_index] = {'name' : label,
+                                        'cross' : np.max(cor)/min(sum(hmm_1hot), sum(model_1hot)),
+                                         'lag' : np.argmax(cor)
+    }
+
+
 #%%
-#
-label = b'S_temporal_transverse'
-label_index = [atlas_destrieux['labels'].index(label)]
+# label = b'S_temporal_transverse'
+label = b'G_oc-temp_med-Lingual'
+label_index = [atlas_destrieux['labels'].index(label)][0]
 regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
 all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
 all_region = all_surf[:,regionInd,:]
-nEvents = bestHMMPerRegion[75]['numSegments'] ; spMerge = False
+nEvents = bestHMMPerRegion[label_index]['numSegments'] ; spMerge = False
 ev = brainiak.eventseg.event.EventSegment(nEvents, split_merge=spMerge)
 ev.fit(all_region.mean(0).T)
-#%%
 segments = np.argmax(ev.segments_[0], axis=1)
 HMM_ebs = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0] # todo note: Returns to event 37 amidst 38
 segmentsVar = np.var(ev.segments_[0], axis=-1)
@@ -789,17 +828,6 @@ print(f"HMM====={len(HMM_ebs)}=====>", HMM_ebs)
 #%%
 model_1hot = np.zeros(all_surf.shape[-1]); model_1hot[model_ebs_in_TR] = 1
 hmm_1hot = np.zeros(all_surf.shape[-1]); hmm_1hot[HMM_ebs] = 1
-#%% compute correlation between two 1-hot smoothed boundary vectors
-
-def boundaryCorrelation(vec1, vec2, smoothing_sig = None):
-    if smoothing_sig: # apply Gaussian smoothing
-        smooth1 = gaussian_filter1d(vec1, sigma=smoothing_sig, mode='constant', cval=0)
-        smooth2 = gaussian_filter1d(vec2, sigma=smoothing_sig, mode='constant', cval=0)
-        cor = pearsonr(smooth1, smooth2)
-    else:
-        # cor = np.sum([np.min(np.abs(modelBoundaries - h)) for h in hmmBoundaries])/len(hmmBoundaries)
-        print("sigma missing")
-    return cor
 #%% the story actually started at TR=15, and ended at TR=283. For all the subjects.
 # except Subj18 and Subj27 who started at TR=11 and ended at TR=279
 fig, ax = plt.subplots(1, 1, figsize=(10, 5))
@@ -811,7 +839,7 @@ plt.plot(hmm_gauss, label='HMM', color='blue')
 # add 1hot vectors as bars in the background
 plt.bar(range(len(model_1hot)), model_1hot*max(model_gauss), color='red', alpha=0.2, width=1)
 plt.bar(range(len(hmm_1hot)), hmm_1hot*max(model_gauss), color='blue', alpha=0.2, width=1)
-plt.legend(); plt.show()
+plt.legend(); plt.title(f"{label}: Gaussian smoothing, sig={gaussSig}"); plt.show()
 #%% Plot both boundaries
 fig = plt.figure()
 waxis = np.arange(0, len(all_surf[0].T))
