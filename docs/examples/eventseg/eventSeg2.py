@@ -1,11 +1,8 @@
 import string
-
-figsToPDF = []
-import pickle
 import wesanderson as wa
 import sys
 from functools import reduce
-import numpy as np
+# import numpy as np
 from MDL_tools  import *
 from scipy.stats import pearsonr
 from scipy.ndimage import gaussian_filter1d
@@ -22,6 +19,7 @@ try:
 except:
     matplotlib.use(bcke)
     print("Can't run interactive backend, run",matplotlib.get_backend(), "instead")
+from matplotlib.animation import FuncAnimation
 smallsize=14; mediumsize=16; largesize=18
 plt.rc('xtick', labelsize=smallsize); plt.rc('ytick', labelsize=smallsize); plt.rc('legend', fontsize=mediumsize)
 plt.rc('figure', titlesize=smallsize); plt.rc('axes', labelsize=mediumsize); plt.rc('axes', titlesize=mediumsize)
@@ -34,6 +32,7 @@ import brainiak.eventseg.event
 print(f"Datasets are stored in: {datasets.get_data_dirs()!r}")
 from pathlib import Path; output_dir = Path.cwd() / "images"
 output_dir.mkdir(exist_ok=True, parents=True); print(f"Output will be saved to: {output_dir}")
+figsToPDF = []
 #%%
 def getBoolMask(atlas, labels, map=None):
     label_index = [atlas.labels.index(l) for l in labels]
@@ -95,169 +94,82 @@ def within_across_corr(D, nEvents, w=5, nPerm=1000, verbose=0, rsd = 0):
         plt.title('{} {} :\nHeld-out subject HMM with {} events ({} perms)'.format(side, label, nEvents, nPerm))
         plt.show(block=blck)
     return within_across, ev
+def longest_common_substring(s1: str, s2: str):
+    if len(s1) < 1 and len(s2) < 1:
+        return "", 0, 0
+    # Initialize a matrix to store the lengths of longest common suffixes
+    n1, n2 = len(s1), len(s2)
+    # Matrix to store the lengths of common suffixes of substrings
+    dp = [[0] * (n2 + 1) for _ in range(n1 + 1)]
 
-#%% Example use - single subject
-if sys.platform == 'linux':
-    file = r'/home/itzik/Desktop/EventBoundaries/recall_files/sherlock_recall_s1.nii'
-    blck = False
-else:
-    file = r'C:\Users\izika\OneDrive\Documents\ComDePri\Memory\fMRI data Project\RecallFiles_published\recall_files\sherlock_recall_s1.nii'
-    blck = False
-all_TR = image.load_img(file)
-print(all_TR.shape)
-first_TR = image.index_img(file, 0)
-print(first_TR.shape)
-plotting.plot_stat_map(first_TR, threshold=1)#, output_file=output_dir / "first_TR.png")
-plotting.plot_img(image.smooth_img(first_TR, fwhm=3), threshold=1); plt.show(block=blck)
-# first_TR.to_filename(output_dir / "first_TR.nii.gz")
-#%% Extract hippocampus using Harvard-Oxford atlas fitted to 3 mm MNI152 template
-atlas_HarvOx = datasets.fetch_atlas_harvard_oxford("sub-maxprob-thr0-2mm")
-mm3_maps = image.resample_to_img(atlas_HarvOx.maps, all_TR, interpolation="nearest")
-plotting.plot_img(atlas_HarvOx.maps, title="Harvard-Oxford atlas", colorbar=True); plt.show(block=False)
-#%%
-label = ['Right Hippocampus', 'Left Hippocampus'] ; label_index = [atlas_HarvOx.labels.index(l) for l in label]
-mask_img, bool_mask = getBoolMask(atlas_HarvOx, label, mm3_maps)
-# bool_mask = reduce(lambda x, y: x + y, [(mm3_maps.get_fdata() == i) for i in label_index])
-# mask_img = nl.image.new_img_like(mm3_maps, bool_mask)
-print(label, "mask // Shape:", bool_mask.shape, ", # voxels: ", np.sum(bool_mask))
-#%%
-hippocampi_HarvOX = masking.apply_mask([all_TR], mask_img, dtype='f', smoothing_fwhm=None, ensure_finite=True)
-hippocampi_HarvOX.shape # TRs x voxels
-plotting.plot_roi(mask_img, title='hippocampi, Harvard-Oxford ({} voxels)'.format(np.sum(bool_mask)), display_mode='tiled', draw_cross=False, cmap = 'viridis'); plt.show(block=blck)
-#%% Extract hippocampus using Juelich (based on Hahamy)
-atlas_juelich = datasets.fetch_atlas_juelich("maxprob-thr0-2mm")
-mm3_maps = image.resample_to_img(atlas_juelich.maps, all_TR, interpolation="nearest")
-#%%
-label_index = [atlas_juelich.labels.index(l) for l in atlas_juelich.labels if 'hippocampus' in l.lower()]
-bool_mask = reduce(lambda x, y: x + y, [(mm3_maps.get_fdata() == i) for i in label_index])
-mask_img = nl.image.new_img_like(mm3_maps, bool_mask)
-print(label, "mask // Shape:", bool_mask.shape, ", # voxels: ", np.sum(bool_mask))
-hippocampi_juelich = masking.apply_mask([all_TR], mask_img, dtype='f', smoothing_fwhm=None, ensure_finite=True)
-hippocampi_juelich.shape # TRs x voxels
-plotting.plot_roi(mask_img, title='hippocampi, Juelich hist. ({} voxels)'.format(np.sum(bool_mask)), display_mode='tiled', draw_cross=False, cmap='viridis'); plt.show(block=blck)
-#%% Extract cortical surface areas
-fsaverage = datasets.fetch_surf_fsaverage()
-atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
-all_TR_surfR = nl.surface.vol_to_surf(all_TR, fsaverage.pial_right)
-all_TR_surfL = nl.surface.vol_to_surf(all_TR, fsaverage.pial_left)
-#%% Plotting the cortical parcellation
-plotting.plot_surf_roi(
-    fsaverage["pial_left"],
-    roi_map=atlas_destrieux["map_left"],
-    hemi="left",
-    view="medial",
-    bg_map=fsaverage["sulc_left"],
-    bg_on_data=True,
-    darkness=0.5,
-)
-plt.show(block=blck)
-#%% cortical_L = maskerL.fit_transform([all_TR])
-side = 'left'
-for i in range(1, 5, 1):
-    plotting.plot_surf_roi(
-        fsaverage["pial_" + side],
-        roi_map=all_TR_surfL[:,i] if side == 'left' else all_TR_surfR[:,i],
-        hemi=side,
-        view="lateral",
-        bg_map=fsaverage["sulc_" + side],
-        bg_on_data=True,
-        title=f"Destrieux {side} {i}",
-    )
-    plt.show(block=False)
-    plt.pause(3)
-    plt.close()
-#%% Focus on G_oc-temp_med-Lingual
-side = 'left'
-label =   b'G_pariet_inf-Angular'#b'G_temp_sup-Lateral' # b'S_temporal_transverse' # Heschl's gyri - primary auditory cortex (Brodmann areas 41 and 42)
-label_index = [atlas_destrieux['labels'].index(label)]
-bool_mask = reduce(lambda x, y: x + y, [(atlas_destrieux["map_"+side] == i) for i in label_index])
-#%% plot on surf
-# make all_TR_surfL zero everywhere outside the mask
-plot_region = np.zeros_like(all_TR_surfR)
-plot_region[bool_mask,:] = all_TR_surfR[bool_mask,:] if side == 'right' else all_TR_surfL[bool_mask,:]
-plotting.plot_surf_roi(
-    fsaverage["pial_" + side],
-    roi_map= plot_region[:,14],
-    hemi=side,
-    view="lateral",
-    bg_map=fsaverage["sulc_"+side],
-    bg_on_data=True,
-    title=f"Destrieux {side} {label}",
-    cmap='plasma',
-    threshold=0.0001,
-)
+    longest_len = 0  # Length of the longest common substring
+    end_s1 = 0  # End index of the longest common substring in s1
 
-plt.show(block=blck)
-############################################################################################################
-############################################################################################################
-#%% Linear regression
-from nilearn.glm.first_level import make_first_level_design_matrix, run_glm
-t_r = 1.5
-slice_time_ref = 0.5
-T = all_TR_surfL.shape[-1]; time_x = (np.arange(T) + 0.5) * t_r
+    # Fill dp matrix
+    for i in range(1, n1 + 1):
+        for j in range(1, n2 + 1):
+            if s1[i - 1] == s2[j - 1]:
+                dp[i][j] = dp[i - 1][j - 1] + 1
+                if dp[i][j] > longest_len:
+                    longest_len = dp[i][j]
+                    end_s1 = i  # Store the end index of the longest common substring in s1
 
-#%%
-from nilearn.datasets import fetch_localizer_first_level
-t_r = 2.4
-slice_time_ref = 0.5
-data = fetch_localizer_first_level()
-fmri_img = data.epi_img
-events_file = data.events
-events = pd.read_table(events_file)
-texture = nl.surface.vol_to_surf(fmri_img, fsaverage.pial_right)
-T = texture.shape[-1]; time_x = (np.arange(T) + 0.5) * t_r
-#%% plot fmri image
-design_matrix = make_first_level_design_matrix(time_x,
-                                               events=events,
-                                               hrf_model='glover + derivative'
-                                               )
-labels, estimates = run_glm(texture.T, design_matrix.values)
-#%%
-contrast_matrix = np.eye(design_matrix.shape[1])
-basic_contrasts = dict([(column, contrast_matrix[i])
-                        for i, column in enumerate(design_matrix.columns)])
-basic_contrasts['audio'] = (
-    basic_contrasts['audio_left_hand_button_press']
-    + basic_contrasts['audio_right_hand_button_press']
-    + basic_contrasts['audio_computation']
-    + basic_contrasts['sentence_listening'])
+    # If no common substring is found
+    if longest_len == 0:
+        return "", -1, -1
 
-# one contrast adding all conditions involving instructions reading
-basic_contrasts['visual'] = (
-    basic_contrasts['visual_left_hand_button_press']
-    + basic_contrasts['visual_right_hand_button_press']
-    + basic_contrasts['visual_computation']
-    + basic_contrasts['sentence_reading'])
+    # Starting index in s1
+    start_s1 = end_s1 - longest_len
+    # Find the starting index in s2 using the length of the substring
+    start_s2 = s2.find(s1[start_s1:end_s1])
 
-# one contrast adding all conditions involving computation
-basic_contrasts['computation'] = (basic_contrasts['visual_computation']
-                                  + basic_contrasts['audio_computation'])
+    # Return the longest common substring and starting indices in s1 and s2
+    return s1[start_s1:end_s1], start_s1, start_s2
 
-# one contrast adding all conditions involving sentences
-basic_contrasts['sentences'] = (basic_contrasts['sentence_listening']
-                                + basic_contrasts['sentence_reading'])
-#%%
-contrasts = ['audio', 'visual', 'computation', 'sentences', 'sentence_reading', 'sentence_listening', 'audio_computation']
-for index, contrast_id in enumerate(contrasts):
-    contrast_val = basic_contrasts[contrast_id]
-    print(f"  Contrast {index + 1:1} out of {len(contrasts)}: "
-          f"{contrast_id}, right hemisphere")
-    # compute contrast-related statistics
-    contrast = nl.glm.contrasts.compute_contrast(labels, estimates, contrast_val,
-                                stat_type='t')
-    # we present the Z-transform of the t map
-    z_score = contrast.z_score()
-    # we plot it on the surface, on the inflated fsaverage mesh,
-    # together with a suitable background to give an impression
-    # of the cortex folding.
-    plotting.plot_surf_stat_map(
-        fsaverage.infl_right, z_score, hemi='right',
-        title=contrast_id, colorbar=True,
-         bg_map=fsaverage.sulc_right, threshold=3.,
-    )
-    plt.show(block=False)
-    plt.pause(10)
-    plt.close()
+
+import numpy as np
+
+import numpy as np
+
+
+def count_close_ones(model: np.ndarray, data: np.ndarray, distance: int = 3, exclusive=False) -> int:
+    """
+    Counts the number of 1's in the 'model' time series that are within a specified distance
+    of a 1 in the 'data' time series, ensuring that each 1 in 'data' can only be matched once.
+
+    Parameters:
+    - model (np.ndarray): The model time-series vector (1D array of 0s and 1s).
+    - data (np.ndarray): The data time-series vector (1D array of 0s and 1s).
+    - distance (int): The distance within which to count the close ones.
+
+    Returns:
+    - int: The count of 1's in 'model' that are within 'distance' time points from a 1 in 'data'.
+    """
+    # Ensure model and data are numpy arrays and have the same length
+    if len(model) != len(data):
+        raise ValueError("Model and data time-series must be of the same length.")
+
+    # Find indices of 1s in model and data
+    model_indices = np.where(model == 1)[0]
+    data_indices = np.where(data == 1)[0]
+
+    # Create a set to keep track of which data indices have been used
+    used_data_indices = set()  # Change: Initialize a set to track matched data indices
+
+    count = 0
+
+    # For each 1 in the model, check if there is an unmatched 1 in the data within the specified distance
+    for model_index in model_indices:
+        # Find a data index within the range [model_index - distance, model_index + distance]
+        for data_index in data_indices:
+            if abs(model_index - data_index) <= distance and data_index not in used_data_indices:
+                count += 1
+                if exclusive:
+                    used_data_indices.add(data_index)  # Change: Mark this data index as used
+                break  # Change: Move to the next model_index after finding a match
+
+    return count
+
 ############################################################################################################
 ##### Event segmentation of narratives #####################################################################
 #%%  import fMRI data. project to cortical surface
@@ -280,6 +192,7 @@ atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
 all_TR_surfR = nl.surface.vol_to_surf(all_TR, fsaverage.pial_right)
 all_TR_surfL = nl.surface.vol_to_surf(all_TR, fsaverage.pial_left)
 #%% Load MilkyWay preprocessed data
+blck = False
 task = 'milkyway'
 if sys.platform == 'linux':
     pathDS = r'/home/itzik/Desktop/EventBoundaries/milkyway_vodka/Milkyway/niftis_preprocessed'
@@ -309,8 +222,8 @@ plt.show(block = blck)
 #%% the story actually started at TR=15, and ended at TR=283. This is true for all the subjects,
 # except Subj18 and Subj27 who started at TR=11 and ended at TR=279
 #%% Extract the story relevant TRS only
-BOLD_sliced = [image.index_img(BOLD[b], slice(15, 283)) for b in range(len(BOLD))]
-BOLD_sliced[17] = image.index_img(BOLD[17], slice(11, 279))
+BOLD_sliced = [image.index_img(BOLD[b], slice(15, 285)) for b in range(len(BOLD))]
+BOLD_sliced[17] = image.index_img(BOLD[17], slice(11, 281))
 # BOLD_sliced[27] = image.index_img(BOLD[27], slice(11, 279))
 
 #%% Project to cortical surface
@@ -339,8 +252,8 @@ for i in range(1, 4, 1):
 
 #%%  Fit Cortical with held-out subjects, focus on one region
 label =   b'G_pariet_inf-Angular'#b'G_temp_sup-Lateral' # b'S_temporal_transverse' # Heschl's gyri - primary auditory cortex (Brodmann areas 41 and 42)
-# label = b'S_temporal_transverse'
-label = b'G_temp_sup-Lateral'
+# label = b'S_temporal_transverse' #  b'G_temp_sup-Lateral'
+label = b'G_oc-temp_med-Lingual'
 label_index = [atlas_destrieux['labels'].index(label)]
 regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
 #show region on surface
@@ -361,11 +274,11 @@ plt.show(block=blck)
 #%% Find the best number of HMM segments for the region
 all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
 all_region = all_surf[:,regionInd,:]
-segments_vals = np.arange(2, 15, 1)
+segments_vals = np.arange(14, 25, 2)
 score = [] ; nPerm = 1000 ; w = 5 ; nSubj = len(files)
 within_across_all = np.zeros((len(segments_vals),nSubj, nPerm+1))
 for i,nSegments in enumerate(segments_vals):
-    within_across_all[i] = within_across_corr(all_region, nSegments, w, nPerm, verbose=0)
+    within_across_all[i], _ = within_across_corr(all_region, nSegments, w, nPerm, verbose=0)
     score.append(within_across_all[i,:,0].mean())
     print(f"Number of HMM segments: {nSegments}, HMM score: {score[-1]}")
 fig, ax = plt.subplots(1, 1, figsize=(5, 5))
@@ -387,7 +300,7 @@ segments_vals = np.arange(2, 50, 1)
 bestHMMPerRegion= {}
 allHMMruns_within_acrr= {}
 nPerm = 1000 ; w = 5 ; nSubj = len(files)
-for r in range(1, 17, 1):
+for r in range(1, len(atlas_destrieux['labels']), 1):
     label = atlas_destrieux['labels'][r]
     regionInd = np.where(atlas_destrieux["map_"+side] == r)[0]
     all_region = all_surf[:,regionInd,:]
@@ -403,13 +316,14 @@ for r in range(1, 17, 1):
             bestHMMPerRegion[r] = {
                 'name': label,
                 'nSegments': nSegments,
+                'boundaries': HMM_ebs,
                 'nBoundaries': len(HMM_ebs),
                 'score': score
             }
     allHMMruns_within_acrr[r] = within_across_all
 #%% SAve the results
 # np.savez('HMMscorePerRegion_left_w5', HMMscorePerRegion=HMMscorePerRegion)
-np.savez('HMMperRegionSliced_'+side+'_w'+str(w), bestHMMPerRegion=bestHMMPerRegion, allHMMruns_within_acrr=allHMMruns_within_acrr)
+np.savez('HMMperRegionSliced_'+side+'_w'+str(w), bestHMMPerRegion=bestHMMPerRegion, allHMMruns_within_acrr=allHMMruns_within_acrr, nanRegions=[3,16])
 #%% ++++++++++++++++++++++++++++++ old format
 bestNumEvents= {}
 for r in range(len(HMMscorePerRegion)):
@@ -425,12 +339,16 @@ np.savez('bestNumEvents_left_w5', bestNumEvents=bestNumEvents)
 #%%
 bestNumEvents = np.load('bestNumEvents_left_w5.npz', allow_pickle=True)['bestNumEvents'].item()
 #%% +++++++++++++++++++++++++++++++++++++ end old format
-plot_nSegs = np.zeros_like(surfL[0][:,0])
+plot_nSegs = np.zeros_like(surfL[0][:,0]) ; AlgFail = []
 for r in bestHMMPerRegion:
     regionInd = np.where(atlas_destrieux["map_"+side] == r)[0]
     #show region on surface
-    plot_nSegs[regionInd] = bestHMMPerRegion[r]['numEvents'] # ['nSegments']
-    print(r, ": ", bestHMMPerRegion[r]['name'], bestHMMPerRegion[r]['numEvents'])
+    if np.isnan(bestHMMPerRegion[r]['score']):
+        print(r, ": ",bestHMMPerRegion[r]['name'], ">>>>>>>>>HMM Algorithm failure")
+        AlgFail.append(r)
+        continue
+    plot_nSegs[regionInd] = bestHMMPerRegion[r]['nSegments']
+    print(r, ": ", bestHMMPerRegion[r]['name'], bestHMMPerRegion[r]['nSegments'])
 #%%
 plotting.plot_surf_roi(
         fsaverage["infl_" + side],
@@ -455,11 +373,14 @@ plotting.plot_surf(
         cmap = 'viridis', cbar_tick_format="auto"
 )
 plt.show(block=blck)
-#%% find max and min of bestNumEvents
-maxNumSegs = np.max([bestHMMPerRegion[r]['nSegments'] for r in bestHMMPerRegion])
-minNumSegs = np.min([bestHMMPerRegion[r]['nSegments'] for r in bestHMMPerRegion])
+#%% find max and min of bestNumEvents (exclude failing regions)
+maxNumSegs = np.max([bestHMMPerRegion[r]['nSegments'] for r in bestHMMPerRegion if not np.isnan(bestHMMPerRegion[r]['score'])])
+minNumSegs = np.min([bestHMMPerRegion[r]['nSegments'] for r in bestHMMPerRegion if not np.isnan(bestHMMPerRegion[r]['score'])])
 print(f"Max number of events: {maxNumSegs}, Min number of events: {minNumSegs}")
 
+##############################################################################
+#################### MDL #####################################################
+##############################################################################
 #%% import word embeddings pickle
 dataPath = '/home/itzik/PycharmProjects/brainiak/docs/examples/eventseg/results/milkyway'
 task = 'milkyway'
@@ -583,18 +504,29 @@ fig = plt.figure()
 supp = [len(numEvents_b[bb]) for bb in numEvents_b]
 plt.bar(list(numEvents_b.keys()), supp)
 plt.xticks(list(numEvents_b.keys())); plt.xlabel('Number of events'); plt.ylabel('Number of b values')
+#%% Look for weird back and forth transitions
+for reg_i in bestHMMPerRegion:
+    if reg_i in AlgFail:
+        continue
+    reg = bestHMMPerRegion[reg_i]
+    if reg['nSegments'] - reg['nBoundaries'] != 1:
+        print(reg_i, ":", reg['name'], " has ", reg['nSegments'], " states, but ", reg['nBoundaries'], " EB")
+
 #%% For each region, find the b value closest to its num events
 b_per_region = {}
 inaccurate_b = []
 for r in bestHMMPerRegion:
-    numEvents = bestHMMPerRegion[r]['nBoundaries']
-    while numEvents not in numEvents_b:
-        inaccurate_b.append(r)
-        print(f"Number of events {numEvents} for region {bestHMMPerRegion[r]['name']} not found in EB hierarchy")
-        numEvents += 1
-        print(f"Adding {numEvents} instead")
+    if r in AlgFail:
+        b_per_region[r] = np.nan
         continue
-    b_per_region[r] = numEvents_b[numEvents]
+    numBounds = bestHMMPerRegion[r]['nBoundaries']
+    while numBounds not in numEvents_b:
+        inaccurate_b.append(r)
+        print(f"Number of boundaries {numBounds} for region {bestHMMPerRegion[r]['name']} not found in EB hierarchy")
+        numBounds += 1
+        print(f"Adding {numBounds} instead")
+        continue
+    b_per_region[r] = numEvents_b[numBounds]
 ##########################################################################################
 #%% #######################Time correlation vs. the HMM results###########################
 ##########################################################################################
@@ -653,38 +585,7 @@ for i, tt in enumerate(tokens):
     if len(tt) < 1:
         emptyTokens.append(i)
     tokens[i] = tt
-#%%
-def longest_common_substring(s1: str, s2: str):
-    if len(s1) < 1 and len(s2) < 1:
-        return "", 0, 0
-    # Initialize a matrix to store the lengths of longest common suffixes
-    n1, n2 = len(s1), len(s2)
-    # Matrix to store the lengths of common suffixes of substrings
-    dp = [[0] * (n2 + 1) for _ in range(n1 + 1)]
 
-    longest_len = 0  # Length of the longest common substring
-    end_s1 = 0  # End index of the longest common substring in s1
-
-    # Fill dp matrix
-    for i in range(1, n1 + 1):
-        for j in range(1, n2 + 1):
-            if s1[i - 1] == s2[j - 1]:
-                dp[i][j] = dp[i - 1][j - 1] + 1
-                if dp[i][j] > longest_len:
-                    longest_len = dp[i][j]
-                    end_s1 = i  # Store the end index of the longest common substring in s1
-
-    # If no common substring is found
-    if longest_len == 0:
-        return "", -1, -1
-
-    # Starting index in s1
-    start_s1 = end_s1 - longest_len
-    # Find the starting index in s2 using the length of the substring
-    start_s2 = s2.find(s1[start_s1:end_s1])
-
-    # Return the longest common substring and starting indices in s1 and s2
-    return s1[start_s1:end_s1], start_s1, start_s2
 #%% Time lock tokens in Y according to word onset TR
 tokens_timings = np.zeros(Y.shape[-1]) #skips first token/word
 k = 1 ; token_word = []
@@ -710,21 +611,25 @@ for i, tt in enumerate(tokens[1:]):
     k += 1
 #%% Per region, find relevnat MDL boundaries and compare
 all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
-spMerge = False ; MRI_offset = 15 #todo delete after slicing data
-correlation_results = {}
+spMerge = False ; MRI_offset = 0 #todo delete after slicing data
+correlation_results = {} ; gaussSig = 3
 for label in atlas_destrieux['labels'][1:]:
     # fMRI part
     label_index = [atlas_destrieux['labels'].index(label)][0]
+    if label_index in AlgFail:
+        print( "---------------- skipping ",label_index, label, " due to HMM algorithm failure-------------------")
+        continue
     regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
     all_region = all_surf[:,regionInd,:]
     assert (label == bestHMMPerRegion[label_index]['name'])
     print(">>>>>>>>Region: ", label)
-    nSeg = bestHMMPerRegion[label_index]['numEvents']#['numSegments']
-    # todo replace with saving best ev object in bestHMMperRegion
-    ev = brainiak.eventseg.event.EventSegment(nSeg, split_merge=spMerge)
-    ev.fit(all_region.mean(0).T)
-    segments = np.argmax(ev.segments_[0], axis=1)
-    HMM_ebs = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0]
+    # nSeg = bestHMMPerRegion[label_index]['nSegments']
+    # # todo HMM algorithm is not numerically stable: running again results in (slightly) different boundaries
+    # ev = brainiak.eventseg.event.EventSegment(nSeg, split_merge=spMerge)
+    # ev.fit(all_region.mean(0).T)
+    # segments = np.argmax(ev.segments_[0], axis=1)
+    # HMM_ebs = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0]
+    HMM_ebs = bestHMMPerRegion[label_index]['boundaries']
     # MDL part
     b = b_per_region[label_index][0]
     b_ind = np.where(bvals == b)[0][0]
@@ -738,20 +643,63 @@ for label in atlas_destrieux['labels'][1:]:
     hmm_1hot = np.zeros(all_surf.shape[-1]); hmm_1hot[HMM_ebs] = 1
     # compute cross correlation between model and HMM boundaries 1 hot vectors
     cor = correlate(model_1hot, hmm_1hot)
-    correlation_results[label_index] = {'name' : label,
+    # folllowing Baldassano et al. find the number of model boundaries that are between 3 time points before and after an HMM boundary
+    close_cor = count_close_ones(model_1hot, hmm_1hot, 3)/sum(model_1hot)
+    close_cor_exc = count_close_ones(model_1hot, hmm_1hot, 3, exclusive=True)/sum(model_1hot)
+    # Gaussian Smoothing correlation
+    model_gauss = gaussian_filter1d(model_1hot, sigma=gaussSig, mode='constant', cval=0)
+    hmm_gauss = gaussian_filter1d(hmm_1hot, sigma=gaussSig, mode='constant', cval=0)
+    cor_gauss = pearsonr(model_gauss, hmm_gauss)
+    correlation_results[label_index] = {'name' : label, 'boundaries': len(HMM_ebs),
                                         'cross' : np.max(cor)/min(sum(hmm_1hot), sum(model_1hot)),
-                                         'lag' : np.argmax(cor)
+                                         'lag' : np.argmax(cor),
+                                            'close': close_cor,
+                                            'close_exc': close_cor_exc,
+                                        'GaussianSig': gaussSig,
+                                        'GaussCorr': cor_gauss,
+
     }
 
-
 #%%
-# label = b'S_temporal_transverse'
-label = b'G_oc-temp_med-Lingual'
+Good = [1,4,5,6,10,17,18,23,34,36,38,39,43,44,46,52,59,72]
+goodLabels = [atlas_destrieux['labels'][g] for g in Good]
+countFigs = 0
+for label, label_index in zip(goodLabels, Good):
+    if countFigs >14:
+        break
+    print("============", label, correlation_results[label_index]['GaussCorr'], "============")
+    HMM_ebs = bestHMMPerRegion[label_index]['boundaries']
+    b = b_per_region[label_index][0]
+    b_ind = np.where(bvals == b)[0][0]
+    model_ebs = np.where(EB_all[b_ind])[0]
+    model_ebs_in_TR_space = tokens_timings[model_ebs]
+    model_ebs_in_TR = np.array(
+        [int(bb) for bb in model_ebs_in_TR_space]) + MRI_offset  # np.rint(model_ebs_in_TR_space).astype(int)
+    print(f"        MODEL====={len(model_ebs_in_TR)}=====>", model_ebs_in_TR)
+    print(f"        HMM====={len(HMM_ebs)}=====>", HMM_ebs)
+    model_1hot = np.zeros(all_surf.shape[-1]);    model_1hot[model_ebs_in_TR] = 1
+    hmm_1hot = np.zeros(all_surf.shape[-1]);    hmm_1hot[HMM_ebs] = 1
+    model_gauss = gaussian_filter1d(model_1hot, sigma=gaussSig, mode='constant', cval=0)
+    hmm_gauss = gaussian_filter1d(hmm_1hot, sigma=gaussSig, mode='constant', cval=0)
+    fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+    plt.plot(model_gauss, label='Model', color='red')
+    plt.plot(hmm_gauss, label='HMM', color='blue')
+    # add 1hot vectors as bars in the background
+    plt.bar(range(len(model_1hot)), model_1hot * max(model_gauss), color='red', alpha=0.2, width=1)
+    plt.bar(range(len(hmm_1hot)), hmm_1hot * max(model_gauss), color='blue', alpha=0.2, width=1)
+    plt.legend();
+    plt.title(f"{label}: gauss_sig={gaussSig}, close score={correlation_results[label_index]['close_exc']:.3f}")
+    plt.show() ; countFigs += 1
+
+#%% Focusing on 1 region
+
+label = b'S_temporal_sup'#b'S_temporal_transverse'
+# label = b'G_oc-temp_med-Lingual'
 label_index = [atlas_destrieux['labels'].index(label)][0]
 regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
 all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
 all_region = all_surf[:,regionInd,:]
-nEvents = bestHMMPerRegion[label_index]['numSegments'] ; spMerge = False
+nEvents = bestHMMPerRegion[label_index]['nSegments'] ; spMerge = False
 ev = brainiak.eventseg.event.EventSegment(nEvents, split_merge=spMerge)
 ev.fit(all_region.mean(0).T)
 segments = np.argmax(ev.segments_[0], axis=1)
@@ -814,7 +762,7 @@ plt.hist(measure[~HMM_ebs], bins=10, alpha=0.5, label='mid-segment')
 plt.legend();plt.show()
 figsToPDF.append(plt.gcf())
 #%% Extract relevant MDL EBs
-b = b_per_region[75][0]
+b = b_per_region[label_index][0]
 b_ind = np.where(bvals == b)[0][0]
 model_ebs = np.where(EB_all[b_ind])[0]
 model_ebs_in_TR_space = tokens_timings[model_ebs]
@@ -860,73 +808,6 @@ for bb in HMM_ebs:
     plt.plot([bb-1, bb, bb+1], [measure[bb-1],measure[bb],measure[bb+1]], color='blue', linewidth=2)
 plt.legend(); plt.show()
 figsToPDF.append(plt.gcf())
-#%% load Narrative DS partcipants tsv
-pathDS = r'/home/itzik/Desktop/EventBoundaries/Narratives_DSs'
-participants = pd.read_csv(pathDS + r'/participants.tsv', sep='\t')
-
-# extract rows where 'task' field contains 'pieman', exclude 'piemanpni'
-task_participants = participants[participants.task.str.contains(task) & ~participants.task.str.contains('piemanpni')]
-#%%
-pathDS = r'smb://132.64.186.144/hartlabnas/personal_folders/isaac.ash/OptCodingEB/narrative_DS/ds002345-download'
-excluded = ['sub-001', 'sub-013', 'sub-014', 'sub-021', 'sub-022', 'sub-038', 'sub-056', 'sub-068', 'sub-069']
-folders = [f for f in task_participants.participant_id.values if f not in excluded]
-paths = [pathDS + '/' + f +'/func/' + f + '_task-pieman_bold.nii.gz' for f in folders]
-files = [nl.image.load_img(p) for p in paths]
-## need: ............. acces the preprocessed data
-#%%
-fsaverage = datasets.fetch_surf_fsaverage()
-atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
-all_TR_surfR = nl.surface.vol_to_surf(all_TR, fsaverage.pial_right)
-all_TR_surfL = nl.surface.vol_to_surf(all_TR, fsaverage.pial_left)
-
-
-#++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#%% Run HMM on the data. First, use average to decide best granularity per region
-side = 'left'
-# downsample the TR data into 76 cortical regions
-regions = np.zeros((len(atlas_destrieux['labels']),all_TR.shape[-1]))
-all_TR_avg = np.zeros_like(all_TR_surfR)
-for i, label in enumerate(atlas_destrieux['labels']):
-    if label == b'Unknown':
-        continue
-    bool_mask = reduce(lambda x, y: x + y, [(atlas_destrieux["map_"+side] == i)])
-    print(f"Region {label} has {np.sum(bool_mask)} voxels")
-    regions[i,:] = np.mean(all_TR_surfL[bool_mask,:], axis=0) if side == 'left' else np.mean(all_TR_surfR[bool_mask,:], axis=0)
-    all_TR_avg[bool_mask,:] = regions[i,:]
-regions = regions[1:,:]
-#%% plot region avergaes on cortical surface
-for i in range(1, 4, 1):
-    plotting.plot_surf_roi(
-        fsaverage["pial_" + side],
-        roi_map=all_TR_surfL[:,i*10],
-        hemi=side,
-        view="lateral",
-        bg_map=fsaverage["sulc_" + side],
-        bg_on_data=True,
-        title=f"TR {i}",
-        cmap='plasma',
-        threshold=0.0001,
-    )
-    plt.show(block=False)
-    plt.pause(3)
-    plt.close()
-#%%
-label =   b'G_pariet_inf-Angular'#b'G_temp_sup-Lateral' # b'S_temporal_transverse' # Heschl's gyri - primary auditory cortex (Brodmann areas 41 and 42)
-label_index = [atlas_destrieux['labels'].index(label)]
-regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
-# exRegion = regions[label_index,:].reshape(1,-1)
-exRegion = all_TR_surfL[regionInd,:] if side == 'left' else all_TR_surfR[regionInd,:]
-
-#%%
-numEvents = np.arange(30, 100, 10)
-segs = []
-for n in numEvents:
-    ev = brainiak.eventseg.event.EventSegment(n)
-    ev.fit(exRegion.T)
-    segs.append(ev)
-    print(f"Number of regions: {n}, log likelihood: {ev.ll_[-1]}")
-# ev = brainiak.eventseg.event.EventSegment(70)
-# ev.fit(regions.T)
 #%%
 savefig(figsToPDF, os.getcwd(), savename='modal_diff', tight=False, prefix="figures")
 
