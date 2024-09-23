@@ -169,6 +169,52 @@ def count_close_ones(model: np.ndarray, data: np.ndarray, distance: int = 3, exc
                 break  # Change: Move to the next model_index after finding a match
 
     return count
+def moving_average_smooth(vector, window_size=3):
+    return np.convolve(vector, np.ones(window_size)/window_size, mode='same')
+def exponential_smooth(vector, alpha=0.3):
+    smoothed = np.zeros_like(vector, dtype=float)
+    smoothed[0] = vector[0]  # Initialize the first value
+    for t in range(1, len(vector)):
+        smoothed[t] = alpha * vector[t] + (1 - alpha) * smoothed[t - 1]
+    return smoothed
+
+def DTW(vector1: np.ndarray, vector2: np.ndarray) -> float:
+    """
+    Computes the Dynamic Time Warping (DTW) distance between two vectors.
+
+    Parameters:
+    - vector1 (np.ndarray): The first time-series vector.
+    - vector2 (np.ndarray): The second time-series vector.
+
+    Returns:
+    - float: The DTW distance between vector1 and vector2.
+    """
+    n, m = len(vector1), len(vector2)
+    # Create a cost matrix
+    dtw_matrix = np.zeros((n + 1, m + 1)) + np.inf
+    dtw_matrix[0, 0] = 0
+
+    # Populate the matrix
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            cost = abs(vector1[i - 1] - vector2[j - 1])
+            # Take the minimum cost path
+            dtw_matrix[i, j] = cost + min(dtw_matrix[i - 1, j],  # Insertion
+                                          dtw_matrix[i, j - 1],  # Deletion
+                                          dtw_matrix[i - 1, j - 1])  # Match
+
+    # Return the DTW distance (bottom-right corner of the matrix)
+    return dtw_matrix[n, m]
+
+
+import numpy as np
+
+def MSE(vector1: np.ndarray, vector2: np.ndarray) -> float:
+    if len(vector1) != len(vector2):
+        raise ValueError("Vectors must be of the same length.")
+    # Compute MSE
+    mse = np.mean((vector1 - vector2) ** 2)
+    return mse
 
 ############################################################################################################
 ##### Event segmentation of narratives #####################################################################
@@ -253,7 +299,7 @@ for i in range(1, 4, 1):
 #%%  Fit Cortical with held-out subjects, focus on one region
 label =   b'G_pariet_inf-Angular'#b'G_temp_sup-Lateral' # b'S_temporal_transverse' # Heschl's gyri - primary auditory cortex (Brodmann areas 41 and 42)
 # label = b'S_temporal_transverse' #  b'G_temp_sup-Lateral' b'G_oc-temp_med-Lingual'
-label = b'G_temp_sup-Plan_tempo'# b'Lat_Fis-ant-Horizont' #b'Pole_temporal' #  b'G_temp_sup-Lateral' b'G_oc-temp_med-Lingual'
+label = b'G_temporal_middle'#b'G_temp_sup-Plan_tempo'# b'Lat_Fis-ant-Horizont' #b'Pole_temporal' #  b'G_temp_sup-Lateral' b'G_oc-temp_med-Lingual'
 label_index = [atlas_destrieux['labels'].index(label)]
 regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
 #show region on surface
@@ -274,7 +320,7 @@ plt.show(block=blck)
 #%% Find the best number of HMM segments for the region
 all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
 all_region = all_surf[:,regionInd,:]
-segments_vals = np.arange(14, 25, 2)
+segments_vals = np.arange(1, 15, 1)
 score = [] ; nPerm = 1000 ; w = 5 ; nSubj = len(files)
 within_across_all = np.zeros((len(segments_vals),nSubj, nPerm+1))
 for i,nSegments in enumerate(segments_vals):
@@ -287,10 +333,10 @@ plt.xlabel('Number of events'); plt.ylabel('mean(within-across) correlation'); a
 plt.axhline(np.max(score), color='black', linestyle='--', linewidth=0.5)
 plt.show(block = blck)
 #%% For the best number of events, violin plot of within-across correlation
-ii = 1 ; label = atlas_destrieux['labels'][ii]
-within_across_all = allHMMruns_within_acrr[ii]
-best_ind = bestHMMPerRegion[ii]['nSegments'] - 2 #np.argmax(score)
-plt.figure(figsize=(1.5,5))
+# ii = 6 ; label = atlas_destrieux['labels'][ii]
+# within_across_all = allHMMruns_within_acrr[ii]
+best_ind = np.argmax(score) #bestHMMPerRegion[ii]['nSegments'] - 2
+plt.figure(figsize=(5,15))
 plt.violinplot(within_across_all[best_ind,:,1:].mean(0), showextrema=True) # permuted
 plt.scatter(1, within_across_all[best_ind,:,0].mean(0), label= 'Real events') # real
 plt.gca().xaxis.set_visible(False)
@@ -301,6 +347,7 @@ plt.show(block = blck)
 segments_vals = np.arange(2, 50, 1)
 nPerm = 1000 ; w = 5 ; nSubj = len(files)
 #%%
+input("WARNING: You are about to re-write HMM simulation data. Press Enter to continue...")
 bestHMMPerRegion= {}
 allHMMruns_within_acrr= {}
 for r in range(1, len(atlas_destrieux['labels']), 1):
@@ -331,19 +378,19 @@ np.savez('HMMperRegionSliced_'+side+'_w'+str(w), bestHMMPerRegion=bestHMMPerRegi
 HMMdata = np.load('HMMperRegionSliced_'+side+'_w'+str(w)+'.npz', allow_pickle=True)
 bestHMMPerRegion = HMMdata['bestHMMPerRegion'].item() ; allHMMruns_within_acrr = HMMdata['allHMMruns_within_acrr'].item() ; AlgFail = HMMdata['nanRegions']
 #%% ++++++++++++++++++++++++++++++ old format
-bestNumEvents= {}
-for r in range(len(HMMscorePerRegion)):
-    score = np.max(HMMscorePerRegion[r][:,:,0].mean(-1))
-    best = num_events[np.argmax(HMMscorePerRegion[r][:,:,0].mean(-1))]
-    bestNumEvents[r+1] = {
-        'name': atlas_destrieux['labels'][r + 1],
-        'numEvents': best,
-        'score': score
-    }
+# bestNumEvents= {}
+# for r in range(len(HMMscorePerRegion)):
+#     score = np.max(HMMscorePerRegion[r][:,:,0].mean(-1))
+#     best = num_events[np.argmax(HMMscorePerRegion[r][:,:,0].mean(-1))]
+#     bestNumEvents[r+1] = {
+#         'name': atlas_destrieux['labels'][r + 1],
+#         'numEvents': best,
+#         'score': score
+#     }
+# #%%
+# np.savez('bestNumEvents_left_w5', bestNumEvents=bestNumEvents)
 #%%
-np.savez('bestNumEvents_left_w5', bestNumEvents=bestNumEvents)
-#%%
-bestNumEvents = np.load('bestNumEvents_left_w5.npz', allow_pickle=True)['bestNumEvents'].item()
+# bestNumEvents = np.load('bestNumEvents_left_w5.npz', allow_pickle=True)['bestNumEvents'].item()
 #%% +++++++++++++++++++++++++++++++++++++ end old format
 plot_nSegs = np.zeros_like(surfL[0][:,0]) ; AlgFail = []
 for r in bestHMMPerRegion:
@@ -368,15 +415,15 @@ plotting.plot_surf_roi(
 )
 plt.show(block=blck)
 #%%
-plotting.plot_surf(
-        fsaverage["infl_" + side],
+plotting.plot_surf_roi(
+        fsaverage["pial_" + side],
         plot_nSegs,
         hemi=side,
         view="lateral",
         bg_map=fsaverage["sulc_"+side],
-        bg_on_data=True,
-        title=f"Destrieux {side}",
-        cmap = 'viridis', cbar_tick_format="auto"
+        bg_on_data=True, darkness=0.25,
+        title=f"Optimal HMM granularity, {side} hemi, '{task}'", title_font_size=14,
+        colorbar = True, cmap = 'viridis', threshold=2
 )
 plt.show(block=blck)
 #%% find max and min of bestNumEvents (exclude failing regions)
@@ -451,15 +498,7 @@ for i, b in enumerate(bvals):
     print("                   ====>time: %f score: %f" % (time.time()-sstime, MDL))
 print("total time: %f" % (time.time()-stime))
 
-#%% Print story with EB in Capital letters
-for i, w in enumerate(metadata['0']):
-    if i in EB :
-        print(w.upper(), end=' || ')
-    else:
-        print(w, end=' ')
-    if i % 20 == 19:
-        print('\n')
-print()
+
 #%% Running with tau:
 # EB_all = np.zeros((len(bvals), Y.shape[-1]))
 # segPts_all = np.zeros((len(bvals), len(tvals), Y.shape[-1]))
@@ -580,6 +619,17 @@ if words[990] == 'vender':
 # fixed typo in word 639
 # added a word in 894-895 (I have instead of I've)
 #%%
+#%% Print story with EB in Capital letters
+EB = np.where(EB_all[134-bvals[0]])[0]
+for i, w in enumerate(words):
+    if i in EB :
+        print(w.upper(), end=' || ')
+    else:
+        print(w, end=' ')
+    if i % 20 == 19:
+        print('\n')
+print()
+#%%
 emptyTokens = []
 tokens_ = np.load('milkyWayTokens.npy')
 tokens = [t.lower() for t in tokens_ if t not in string.punctuation] # remove single char tokens who are just punctuation
@@ -618,7 +668,8 @@ for i, tt in enumerate(tokens[1:]):
 #%% Per region, find relevnat MDL boundaries and compare
 all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
 spMerge = False ; MRI_offset = 0 #todo delete after slicing data
-correlation_results = {} ; gaussSig = 3
+correlation_results = {} ; gaussSig = 3 ; corrWin = 10
+correlation_results['params'] = {'side': side, 'splitMerge': spMerge, 'gaussSig': gaussSig}
 for label in atlas_destrieux['labels'][1:]:
     # fMRI part
     label_index = [atlas_destrieux['labels'].index(label)][0]
@@ -648,23 +699,20 @@ for label in atlas_destrieux['labels'][1:]:
     model_1hot = np.zeros(all_surf.shape[-1]);  model_1hot[model_ebs_in_TR] = 1
     hmm_1hot = np.zeros(all_surf.shape[-1]); hmm_1hot[HMM_ebs] = 1
     # compute cross correlation between model and HMM boundaries 1 hot vectors
-    cor = correlate(model_1hot, hmm_1hot)
+    cor = np.correlate(hmm_1hot, model_1hot, "same")[len(model_1hot)//2-corrWin:len(model_1hot)//2+corrWin+1] #first vec lags behind
     # folllowing Baldassano et al. find the number of model boundaries that are between 3 time points before and after an HMM boundary
     close_cor = count_close_ones(model_1hot, hmm_1hot, 3)/sum(model_1hot)
     close_cor_exc = count_close_ones(model_1hot, hmm_1hot, 3, exclusive=True)/sum(model_1hot)
     # Gaussian Smoothing correlation
-    model_gauss = gaussian_filter1d(model_1hot, sigma=gaussSig, mode='constant', cval=0)
-    hmm_gauss = gaussian_filter1d(hmm_1hot, sigma=gaussSig, mode='constant', cval=0)
-    cor_gauss = pearsonr(model_gauss, hmm_gauss)
+    model_smooth = gaussian_filter1d(model_1hot, sigma=gaussSig, mode='constant', cval=0)
+    hmm_smooth = gaussian_filter1d(hmm_1hot, sigma=gaussSig, mode='constant', cval=0)
     correlation_results[label_index] = {'name' : label, 'boundaries': len(HMM_ebs),
-                                        'cross' : np.max(cor)/min(sum(hmm_1hot), sum(model_1hot)),
-                                         'lag' : np.argmax(cor),
-                                            'close': close_cor,
-                                            'close_exc': close_cor_exc,
-                                        'GaussianSig': gaussSig,
-                                        'GaussCorr': cor_gauss,
-
-    }
+                                        'crossCor' : np.max(cor)/min(sum(hmm_1hot), sum(model_1hot)),
+                                        'lag' : np.argmax(cor) - corrWin, # pos lag means model leads HMM (good)
+                                        'close': close_cor,
+                                        'close_exc': close_cor_exc,
+                                        'smoothMSE': MSE(model_smooth, hmm_smooth),
+                                        'smoothDTW' : DTW(model_smooth, hmm_smooth)}
 
 #%%
 Good = [1,4,5,6,10,17,18,23,34,36,38,39,43,44,46,52,59,72]
@@ -673,7 +721,7 @@ countFigs = 0
 for label, label_index in zip(goodLabels, Good):
     if countFigs >14:
         break
-    print("============", label, correlation_results[label_index]['GaussCorr'], "============")
+    print("============", label, correlation_results[label_index]['smoothMSE'], "============")
     HMM_ebs = bestHMMPerRegion[label_index]['boundaries']
     b = b_per_region[label_index][0]
     b_ind = np.where(bvals == b)[0][0]
@@ -685,14 +733,14 @@ for label, label_index in zip(goodLabels, Good):
     print(f"        HMM====={len(HMM_ebs)}=====>", HMM_ebs)
     model_1hot = np.zeros(all_surf.shape[-1]);    model_1hot[model_ebs_in_TR] = 1
     hmm_1hot = np.zeros(all_surf.shape[-1]);    hmm_1hot[HMM_ebs] = 1
-    model_gauss = gaussian_filter1d(model_1hot, sigma=gaussSig, mode='constant', cval=0)
-    hmm_gauss = gaussian_filter1d(hmm_1hot, sigma=gaussSig, mode='constant', cval=0)
+    model_smooth = gaussian_filter1d(model_1hot, sigma=gaussSig, mode='constant', cval=0) #  moving_average_smooth(model_1hot, window_size=6)
+    hmm_smooth = gaussian_filter1d(hmm_1hot, sigma=gaussSig, mode='constant', cval=0) #moving_average_smooth(hmm_1hot, window_size=6)
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-    plt.plot(model_gauss, label='Model', color='red')
-    plt.plot(hmm_gauss, label='HMM', color='blue')
+    plt.plot(model_smooth, label='Model', color='red')
+    plt.plot(hmm_smooth, label='HMM', color='blue')
     # add 1hot vectors as bars in the background
-    plt.bar(range(len(model_1hot)), model_1hot * max(model_gauss), color='red', alpha=0.2, width=1)
-    plt.bar(range(len(hmm_1hot)), hmm_1hot * max(model_gauss), color='blue', alpha=0.2, width=1)
+    plt.bar(range(len(model_1hot)), model_1hot * max(model_smooth), color='red', alpha=0.2, width=1)
+    plt.bar(range(len(hmm_1hot)), hmm_1hot * max(model_smooth), color='blue', alpha=0.2, width=1)
     plt.legend();
     plt.title(f"{label}: gauss_sig={gaussSig}, close score={correlation_results[label_index]['close_exc']:.3f}")
     plt.show() ; countFigs += 1
@@ -786,13 +834,13 @@ hmm_1hot = np.zeros(all_surf.shape[-1]); hmm_1hot[HMM_ebs] = 1
 # except Subj18 and Subj27 who started at TR=11 and ended at TR=279
 fig, ax = plt.subplots(1, 1, figsize=(10, 5))
 gaussSig = 5
-model_gauss = gaussian_filter1d(model_1hot, sigma=gaussSig, mode='constant', cval=0)
-hmm_gauss = gaussian_filter1d(hmm_1hot, sigma=gaussSig, mode='constant', cval=0)
-plt.plot(model_gauss, label='Model', color='red')
-plt.plot(hmm_gauss, label='HMM', color='blue')
+model_smooth = gaussian_filter1d(model_1hot, sigma=gaussSig, mode='constant', cval=0)
+hmm_smooth = gaussian_filter1d(hmm_1hot, sigma=gaussSig, mode='constant', cval=0)
+plt.plot(model_smooth, label='Model', color='red')
+plt.plot(hmm_smooth, label='HMM', color='blue')
 # add 1hot vectors as bars in the background
-plt.bar(range(len(model_1hot)), model_1hot*max(model_gauss), color='red', alpha=0.2, width=1)
-plt.bar(range(len(hmm_1hot)), hmm_1hot*max(model_gauss), color='blue', alpha=0.2, width=1)
+plt.bar(range(len(model_1hot)), model_1hot * max(model_smooth), color='red', alpha=0.2, width=1)
+plt.bar(range(len(hmm_1hot)), hmm_1hot * max(model_smooth), color='blue', alpha=0.2, width=1)
 plt.legend(); plt.title(f"{label}: Gaussian smoothing, sig={gaussSig}"); plt.show()
 #%% Plot both boundaries
 fig = plt.figure()
