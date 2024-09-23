@@ -252,8 +252,8 @@ for i in range(1, 4, 1):
 
 #%%  Fit Cortical with held-out subjects, focus on one region
 label =   b'G_pariet_inf-Angular'#b'G_temp_sup-Lateral' # b'S_temporal_transverse' # Heschl's gyri - primary auditory cortex (Brodmann areas 41 and 42)
-# label = b'S_temporal_transverse' #  b'G_temp_sup-Lateral'
-label = b'G_oc-temp_med-Lingual'
+# label = b'S_temporal_transverse' #  b'G_temp_sup-Lateral' b'G_oc-temp_med-Lingual'
+label = b'G_temp_sup-Plan_tempo'# b'Lat_Fis-ant-Horizont' #b'Pole_temporal' #  b'G_temp_sup-Lateral' b'G_oc-temp_med-Lingual'
 label_index = [atlas_destrieux['labels'].index(label)]
 regionInd = np.where(atlas_destrieux["map_"+side] == label_index)[0]
 #show region on surface
@@ -287,7 +287,9 @@ plt.xlabel('Number of events'); plt.ylabel('mean(within-across) correlation'); a
 plt.axhline(np.max(score), color='black', linestyle='--', linewidth=0.5)
 plt.show(block = blck)
 #%% For the best number of events, violin plot of within-across correlation
-best_ind = np.argmax(score)
+ii = 1 ; label = atlas_destrieux['labels'][ii]
+within_across_all = allHMMruns_within_acrr[ii]
+best_ind = bestHMMPerRegion[ii]['nSegments'] - 2 #np.argmax(score)
 plt.figure(figsize=(1.5,5))
 plt.violinplot(within_across_all[best_ind,:,1:].mean(0), showextrema=True) # permuted
 plt.scatter(1, within_across_all[best_ind,:,0].mean(0), label= 'Real events') # real
@@ -297,9 +299,10 @@ plt.title('{} {} :\nHeld-out subject HMM with {} events ({} perms)'.format(side,
 plt.show(block = blck)
 #%% Loop over all cortical regions
 segments_vals = np.arange(2, 50, 1)
+nPerm = 1000 ; w = 5 ; nSubj = len(files)
+#%%
 bestHMMPerRegion= {}
 allHMMruns_within_acrr= {}
-nPerm = 1000 ; w = 5 ; nSubj = len(files)
 for r in range(1, len(atlas_destrieux['labels']), 1):
     label = atlas_destrieux['labels'][r]
     regionInd = np.where(atlas_destrieux["map_"+side] == r)[0]
@@ -324,6 +327,9 @@ for r in range(1, len(atlas_destrieux['labels']), 1):
 #%% SAve the results
 # np.savez('HMMscorePerRegion_left_w5', HMMscorePerRegion=HMMscorePerRegion)
 np.savez('HMMperRegionSliced_'+side+'_w'+str(w), bestHMMPerRegion=bestHMMPerRegion, allHMMruns_within_acrr=allHMMruns_within_acrr, nanRegions=[3,16])
+#%%
+HMMdata = np.load('HMMperRegionSliced_'+side+'_w'+str(w)+'.npz', allow_pickle=True)
+bestHMMPerRegion = HMMdata['bestHMMPerRegion'].item() ; allHMMruns_within_acrr = HMMdata['allHMMruns_within_acrr'].item() ; AlgFail = HMMdata['nanRegions']
 #%% ++++++++++++++++++++++++++++++ old format
 bestNumEvents= {}
 for r in range(len(HMMscorePerRegion)):
