@@ -868,7 +868,7 @@ figsToPDF.append(plt.gcf())
 ###########################################################################
 #%%  Sanity check with regions defined in Baldassano et al. 2017
 case_name = 'Hippocampus H-O'
-atlas = datasets.fetch_atlas_harvard_oxford("sub-maxprob-thr0-2mm") # datasets.fetch_atlas_juelich("maxprob-thr0-2mm")
+atlas = datasets.fetch_atlas_harvard_oxford("sub-maxprob-thr0-2mm") # datasets.fetch_atlas_juelich("maxprob-thr0-2mm") #
 print(f"The atlas contains {len(atlas.labels) - 1} non-overlapping regions")
 atlas.maps = image.resample_to_img(atlas.maps, all_TR, interpolation="nearest")
 label = 'hippocampus'; label_index = [atlas.labels.index(l) for l in atlas.labels if 'hippocampus' in l.lower()]
@@ -885,7 +885,7 @@ allBrain = np.array([BB.get_fdata() for BB in BOLD_sliced])
 allBrain = allBrain.reshape((allBrain.shape[0],-1,allBrain.shape[-1]))
 #%% Find the best number of HMM segments for the region
 all_region = maskedBOLD
-segments_vals = np.arange(9, 20, 1)
+segments_vals = np.arange(10, 50, 1)
 score = [] ; nPerm = 1000 ; w = 5 ; nSubj = len(files)
 within_across_all = np.zeros((len(segments_vals),nSubj, nPerm+1))
 for i,nSegments in enumerate(segments_vals):
@@ -907,7 +907,7 @@ plt.gca().xaxis.set_visible(False)
 plt.ylabel('Within vs across boundary correlation'); plt.legend()
 plt.title('{}:\nHeld-out subject HMM with {} events ({} perms)'.format(case_name, nSeg, nPerm))
 plt.show(block = blck)
-# figsToPDF.append(plt.gcf())
+figsToPDF.append(plt.gcf())
 #%% Analyze model boundaries vs. HMM boundaries
 ev = brainiak.eventseg.event.EventSegment(nSeg)
 ev.fit(maskedBOLD.mean(0).T)
@@ -949,8 +949,9 @@ plt.bar(range(len(model_1hot)), model_1hot * max(model_smooth), color='red', alp
 plt.bar(range(len(hmm_1hot)), hmm_1hot * max(model_smooth), color='blue', alpha=0.2, width=1,label='HMM')
 plt.legend();
 plt.title(f"{case_name}: gauss_sig={gaussSig}")
-plt.show() #;figsToPDF.append(plt.gcf())
+plt.show()
+figsToPDF.append(plt.gcf())
 
 #%%
-savefig(figsToPDF, os.getcwd(), savename='Hippo_HarvardOx', tight=False, prefix="figures")
+savefig(figsToPDF, os.getcwd(), savename='Hippo_HarvardOx_Juliec', tight=False, prefix="figures")
 
