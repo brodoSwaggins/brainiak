@@ -296,6 +296,7 @@ for i in range(1, 4, 1):
     plt.pause(3)
     plt.close()
 
+
 #%%  Fit Cortical with held-out subjects, focus on one region
 label =   b'G_pariet_inf-Angular'#b'G_temp_sup-Lateral' # b'S_temporal_transverse' # Heschl's gyri - primary auditory cortex (Brodmann areas 41 and 42)
 # label = b'S_temporal_transverse' #  b'G_temp_sup-Lateral' b'G_oc-temp_med-Lingual'
@@ -361,6 +362,7 @@ for r in range(1, len(atlas_destrieux['labels']), 1):
         print(f"Region {r}: {label}, number of segments: {nSegments}, HMM score: {score}")
         if r not in bestHMMPerRegion or score > bestHMMPerRegion[r]['score']:
             "+++++++++++++++++++++updating best++++++++++++++++++++++++++++"
+            ev.fit(all_region.mean(0).T) # now fit to all subjects
             segments = np.argmax(ev.segments_[0], axis=1)
             HMM_ebs = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0]
             bestHMMPerRegion[r] = {
@@ -708,7 +710,7 @@ for label in atlas_destrieux['labels'][1:]:
     hmm_smooth = gaussian_filter1d(hmm_1hot, sigma=gaussSig, mode='constant', cval=0)
     correlation_results[label_index] = {'name' : label, 'boundaries': len(HMM_ebs),
                                         'crossCor' : np.max(cor)/min(sum(hmm_1hot), sum(model_1hot)),
-                                        'lag' : np.argmax(cor) - corrWin, # pos lag means model leads HMM (good)
+                                        'lag' : list((np.argwhere(cor == np.amax(cor)) - corrWin).flatten()), # pos lag means model leads HMM (good)
                                         'close': close_cor,
                                         'close_exc': close_cor_exc,
                                         'smoothMSE': MSE(model_smooth, hmm_smooth),
@@ -736,11 +738,11 @@ for label, label_index in zip(goodLabels, Good):
     model_smooth = gaussian_filter1d(model_1hot, sigma=gaussSig, mode='constant', cval=0) #  moving_average_smooth(model_1hot, window_size=6)
     hmm_smooth = gaussian_filter1d(hmm_1hot, sigma=gaussSig, mode='constant', cval=0) #moving_average_smooth(hmm_1hot, window_size=6)
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-    plt.plot(model_smooth, label='Model', color='red')
-    plt.plot(hmm_smooth, label='HMM', color='blue')
+    plt.plot(model_smooth, color='red')
+    plt.plot(hmm_smooth, color='blue')
     # add 1hot vectors as bars in the background
-    plt.bar(range(len(model_1hot)), model_1hot * max(model_smooth), color='red', alpha=0.2, width=1)
-    plt.bar(range(len(hmm_1hot)), hmm_1hot * max(model_smooth), color='blue', alpha=0.2, width=1)
+    plt.bar(range(len(model_1hot)), model_1hot * max(model_smooth), color='red', alpha=0.2, width=1,label='Model')
+    plt.bar(range(len(hmm_1hot)), hmm_1hot * max(model_smooth), color='blue', alpha=0.2, width=1, label='HMM')
     plt.legend();
     plt.title(f"{label}: gauss_sig={gaussSig}, close score={correlation_results[label_index]['close_exc']:.3f}")
     plt.show() ; countFigs += 1
@@ -862,6 +864,93 @@ for bb in HMM_ebs:
     plt.plot([bb-1, bb, bb+1], [measure[bb-1],measure[bb],measure[bb+1]], color='blue', linewidth=2)
 plt.legend(); plt.show()
 figsToPDF.append(plt.gcf())
+###########################################################################
+###########################################################################
+#%%  Sanity check with regions defined in Baldassano et al. 2017
+case_name = 'Hippocampus H-O'
+atlas = datasets.fetch_atlas_harvard_oxford("sub-maxprob-thr0-2mm") # datasets.fetch_atlas_juelich("maxprob-thr0-2mm")
+print(f"The atlas contains {len(atlas.labels) - 1} non-overlapping regions")
+atlas.maps = image.resample_to_img(atlas.maps, all_TR, interpolation="nearest")
+label = 'hippocampus'; label_index = [atlas.labels.index(l) for l in atlas.labels if 'hippocampus' in l.lower()]
+bool_mask = reduce(lambda x, y: x + y, [(atlas.maps.get_fdata() == i) for i in label_index])
+mask_img = nl.image.new_img_like(atlas.maps, bool_mask)
+print(label, "mask // Shape:", bool_mask.shape, ", # voxels: ", np.sum(bool_mask))
+plotting.plot_roi(mask_img, title=label, display_mode='tiled', draw_cross=False)
+plt.show(block=blck)
 #%%
-savefig(figsToPDF, os.getcwd(), savename='modal_diff', tight=False, prefix="figures")
+maskedBOLD = [masking.apply_mask(BB, mask_img, dtype='f', smoothing_fwhm=None, ensure_finite=True) for BB in BOLD_sliced]
+maskedBOLD = np.array([BB.T for BB in maskedBOLD])
+#%% Need toc check statistical significance for whole brain averaged over regions
+allBrain = np.array([BB.get_fdata() for BB in BOLD_sliced])
+allBrain = allBrain.reshape((allBrain.shape[0],-1,allBrain.shape[-1]))
+#%% Find the best number of HMM segments for the region
+all_region = maskedBOLD
+segments_vals = np.arange(9, 20, 1)
+score = [] ; nPerm = 1000 ; w = 5 ; nSubj = len(files)
+within_across_all = np.zeros((len(segments_vals),nSubj, nPerm+1))
+for i,nSegments in enumerate(segments_vals):
+    within_across_all[i], _ = within_across_corr(all_region, nSegments, w, nPerm, verbose=0)
+    score.append(within_across_all[i,:,0].mean())
+    print(f"Number of HMM segments: {nSegments}, HMM score: {score[-1]}")
+fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+plt.plot(segments_vals, score, marker='o', color='black'); plt.title('num of events comparison, {}'.format(label))
+plt.xlabel('Number of events'); plt.ylabel('mean(within-across) correlation'); ax.set_xticks(segments_vals)
+plt.axhline(np.max(score), color='black', linestyle='--', linewidth=0.5)
+plt.show(block = blck)
+#%% For the best number of events, violin plot of within-across correlation
+best_ind = np.argmax(score)
+nSeg = segments_vals[best_ind]
+plt.figure(figsize=(5,15))
+plt.violinplot(within_across_all[best_ind,:,1:].mean(0), showextrema=True) # permuted
+plt.scatter(1, within_across_all[best_ind,:,0].mean(0), label= 'Real events') # real
+plt.gca().xaxis.set_visible(False)
+plt.ylabel('Within vs across boundary correlation'); plt.legend()
+plt.title('{}:\nHeld-out subject HMM with {} events ({} perms)'.format(case_name, nSeg, nPerm))
+plt.show(block = blck)
+# figsToPDF.append(plt.gcf())
+#%% Analyze model boundaries vs. HMM boundaries
+ev = brainiak.eventseg.event.EventSegment(nSeg)
+ev.fit(maskedBOLD.mean(0).T)
+segments = np.argmax(ev.segments_[0], axis=1)
+HMM_ebs = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0]
+# MDL part
+b = numEvents_b[len(HMM_ebs)][0]
+b_ind = np.where(bvals == b)[0][0]
+model_ebs = np.where(EB_all[b_ind])[0]
+model_ebs_in_TR_space = tokens_timings[model_ebs]
+# round down to nearest TR (commented out: round to nearest)
+model_ebs_in_TR = np.array([int(bb) for bb in model_ebs_in_TR_space]) # np.rint(model_ebs_in_TR_space).astype(int)
+print(f"{case_name}:        MODEL====={len(model_ebs_in_TR)}=====>", model_ebs_in_TR)
+print(f"                    HMM====={len(HMM_ebs)}=====>", HMM_ebs)
+#%%
+corrWin = 50 ; gaussSig = 5
+model_1hot = np.zeros(all_surf.shape[-1]);  model_1hot[model_ebs_in_TR] = 1
+hmm_1hot = np.zeros(all_surf.shape[-1]); hmm_1hot[HMM_ebs] = 1
+# compute cross correlation between model and HMM boundaries 1 hot vectors
+cor = np.correlate(hmm_1hot, model_1hot, "same")[len(model_1hot)//2-corrWin:len(model_1hot)//2+corrWin+1] #first vec lags behind
+# folllowing Baldassano et al. find the number of model boundaries that are between 3 time points before and after an HMM boundary
+close_cor = count_close_ones(model_1hot, hmm_1hot, 3)/sum(model_1hot)
+close_cor_exc = count_close_ones(model_1hot, hmm_1hot, 3, exclusive=True)/sum(model_1hot)
+# Gaussian Smoothing correlation
+model_smooth = gaussian_filter1d(model_1hot, sigma=gaussSig, mode='constant', cval=0)
+hmm_smooth = gaussian_filter1d(hmm_1hot, sigma=gaussSig, mode='constant', cval=0)
+print(case_name, ':', 'boundaries', len(HMM_ebs),
+                                    '\ncrossCor', np.max(cor)/min(sum(hmm_1hot), sum(model_1hot)),
+                                    '\nlag', np.argwhere(cor == np.amax(cor)) - corrWin, # pos lag means model leads HMM (good)
+                                    '\nclose', close_cor,
+                                    '\nclose_exc', close_cor_exc,
+                                    '\nsmoothMSE', MSE(model_smooth, hmm_smooth),
+                                    '\nsmoothDTW' , DTW(model_smooth, hmm_smooth))
+fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+# plt.plot(model_smooth,  color='red')
+# plt.plot(hmm_smooth,  color='blue')
+# add 1hot vectors as bars in the background
+plt.bar(range(len(model_1hot)), model_1hot * max(model_smooth), color='red', alpha=0.2, width=1,label='model')
+plt.bar(range(len(hmm_1hot)), hmm_1hot * max(model_smooth), color='blue', alpha=0.2, width=1,label='HMM')
+plt.legend();
+plt.title(f"{case_name}: gauss_sig={gaussSig}")
+plt.show() #;figsToPDF.append(plt.gcf())
+
+#%%
+savefig(figsToPDF, os.getcwd(), savename='Hippo_HarvardOx', tight=False, prefix="figures")
 
