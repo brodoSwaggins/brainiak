@@ -621,16 +621,6 @@ if words[990] == 'vender':
 # fixed typo in word 639
 # added a word in 894-895 (I have instead of I've)
 #%%
-#%% Print story with EB in Capital letters
-EB = np.where(EB_all[134-bvals[0]])[0]
-for i, w in enumerate(words):
-    if i in EB :
-        print(w.upper(), end=' || ')
-    else:
-        print(w, end=' ')
-    if i % 20 == 19:
-        print('\n')
-print()
 #%%
 emptyTokens = []
 tokens_ = np.load('milkyWayTokens.npy')
@@ -643,6 +633,20 @@ for i, tt in enumerate(tokens):
     if len(tt) < 1:
         emptyTokens.append(i)
     tokens[i] = tt
+#%%
+#%% Print story with EB in Capital letters
+# EB = np.where(EB_all[134-bvals[0]])[0]
+# EB = model_ebs
+for i, w in enumerate(tokens): #[initialCut_Y:]
+    if i in emptyTokens:
+        print(".", end='')
+    if i in EB :
+        print(w.upper(), end=' || ')
+    else:
+        print(w, end=' ')
+    if i % 20 == 19:
+        print('\n')
+print()
 
 #%% Time lock tokens in Y according to word onset TR
 tokens_timings = np.zeros(Y.shape[-1]) #skips first token/word
@@ -867,31 +871,46 @@ figsToPDF.append(plt.gcf())
 ###########################################################################
 ###########################################################################
 #%%  Sanity check with regions defined in Baldassano et al. 2017
-case_name = 'Hippocampus H-O'
-atlas = datasets.fetch_atlas_harvard_oxford("sub-maxprob-thr0-2mm") # datasets.fetch_atlas_juelich("maxprob-thr0-2mm") #
-print(f"The atlas contains {len(atlas.labels) - 1} non-overlapping regions")
-atlas.maps = image.resample_to_img(atlas.maps, all_TR, interpolation="nearest")
-label = 'hippocampus'; label_index = [atlas.labels.index(l) for l in atlas.labels if 'hippocampus' in l.lower()]
-bool_mask = reduce(lambda x, y: x + y, [(atlas.maps.get_fdata() == i) for i in label_index])
-mask_img = nl.image.new_img_like(atlas.maps, bool_mask)
-print(label, "mask // Shape:", bool_mask.shape, ", # voxels: ", np.sum(bool_mask))
+case_name = 'Angular Gyr. H-O' #"Yeo 15-16" # 'Hippocampus H-O'
+if "Yeo" in case_name:
+    atlas = datasets.fetch_atlas_yeo_2011().thick_17
+    yeo_img = image.load_img(atlas)
+    yeo_img_resampled = image.resample_to_img(yeo_img, all_TR, interpolation="nearest")
+    label_index = [15, 16] ; label = case_name
+    bool_masks = yeo_img_resampled.get_fdata() == label_index
+    bool_mask = np.sum(bool_masks, axis=-1) > 0
+    mask_img = nl.image.new_img_like(yeo_img_resampled, bool_mask)
+    print(str(label_index), "mask // Shape:", bool_mask.shape, ", # voxels: ", np.sum(bool_mask))
+else:
+    if 'H-O' in case_name:
+        atlas = datasets.fetch_atlas_harvard_oxford("cort-maxprob-thr0-2mm")
+    else:
+        input("define atlas >>>>")
+        atlas =  datasets.fetch_atlas_juelich("maxprob-thr0-2mm") #
+    print(f"The atlas contains {len(atlas.labels) - 1} non-overlapping regions")
+    atlas.maps = image.resample_to_img(atlas.maps, all_TR, interpolation="nearest")
+    label = 'angular gyrus'; label_index = [atlas.labels.index(l) for l in atlas.labels if label in l.lower()]
+    bool_mask = reduce(lambda x, y: x + y, [(atlas.maps.get_fdata() == i) for i in label_index])
+    mask_img = nl.image.new_img_like(atlas.maps, bool_mask)
+    print(label, "mask // Shape:", bool_mask.shape, ", # voxels: ", np.sum(bool_mask))
 plotting.plot_roi(mask_img, title=label, display_mode='tiled', draw_cross=False)
 plt.show(block=blck)
 #%%
+# initialCut = 18
 maskedBOLD = [masking.apply_mask(BB, mask_img, dtype='f', smoothing_fwhm=None, ensure_finite=True) for BB in BOLD_sliced]
-maskedBOLD = np.array([BB.T for BB in maskedBOLD])
+maskedBOLD = np.array([BB[initialCut:,...].T for BB in maskedBOLD])
 #%% Need toc check statistical significance for whole brain averaged over regions
 allBrain = np.array([BB.get_fdata() for BB in BOLD_sliced])
 allBrain = allBrain.reshape((allBrain.shape[0],-1,allBrain.shape[-1]))
 #%% Find the best number of HMM segments for the region
-all_region = maskedBOLD
-segments_vals = np.arange(10, 50, 1)
+segments_vals = np.arange(24, 30, 1)
 score = [] ; nPerm = 1000 ; w = 5 ; nSubj = len(files)
 within_across_all = np.zeros((len(segments_vals),nSubj, nPerm+1))
 for i,nSegments in enumerate(segments_vals):
-    within_across_all[i], _ = within_across_corr(all_region, nSegments, w, nPerm, verbose=0)
+    within_across_all[i], _ = within_across_corr(maskedBOLD, nSegments, w, nPerm, verbose=0)
     score.append(within_across_all[i,:,0].mean())
     print(f"Number of HMM segments: {nSegments}, HMM score: {score[-1]}")
+#%%
 fig, ax = plt.subplots(1, 1, figsize=(5, 5))
 plt.plot(segments_vals, score, marker='o', color='black'); plt.title('num of events comparison, {}'.format(label))
 plt.xlabel('Number of events'); plt.ylabel('mean(within-across) correlation'); ax.set_xticks(segments_vals)
@@ -900,30 +919,31 @@ plt.show(block = blck)
 #%% For the best number of events, violin plot of within-across correlation
 best_ind = np.argmax(score)
 nSeg = segments_vals[best_ind]
-plt.figure(figsize=(5,15))
+plt.figure(figsize=(6,16))
 plt.violinplot(within_across_all[best_ind,:,1:].mean(0), showextrema=True) # permuted
 plt.scatter(1, within_across_all[best_ind,:,0].mean(0), label= 'Real events') # real
 plt.gca().xaxis.set_visible(False)
 plt.ylabel('Within vs across boundary correlation'); plt.legend()
 plt.title('{}:\nHeld-out subject HMM with {} events ({} perms)'.format(case_name, nSeg, nPerm))
 plt.show(block = blck)
-figsToPDF.append(plt.gcf())
+# figsToPDF.append(plt.gcf())
 #%% Analyze model boundaries vs. HMM boundaries
 ev = brainiak.eventseg.event.EventSegment(nSeg)
 ev.fit(maskedBOLD.mean(0).T)
 segments = np.argmax(ev.segments_[0], axis=1)
 HMM_ebs = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0]
-# MDL part
+#%%# MDL part
 b = numEvents_b[len(HMM_ebs)][0]
 b_ind = np.where(bvals == b)[0][0]
 model_ebs = np.where(EB_all[b_ind])[0]
 model_ebs_in_TR_space = tokens_timings[model_ebs]
+# model_ebs_in_TR_space = tokens_timings[initialCut_Y:][model_ebs] - initialCut
 # round down to nearest TR (commented out: round to nearest)
 model_ebs_in_TR = np.array([int(bb) for bb in model_ebs_in_TR_space]) # np.rint(model_ebs_in_TR_space).astype(int)
 print(f"{case_name}:        MODEL====={len(model_ebs_in_TR)}=====>", model_ebs_in_TR)
 print(f"                    HMM====={len(HMM_ebs)}=====>", HMM_ebs)
 #%%
-corrWin = 50 ; gaussSig = 5
+corrWin = 50 ; gaussSig = 3
 model_1hot = np.zeros(all_surf.shape[-1]);  model_1hot[model_ebs_in_TR] = 1
 hmm_1hot = np.zeros(all_surf.shape[-1]); hmm_1hot[HMM_ebs] = 1
 # compute cross correlation between model and HMM boundaries 1 hot vectors
@@ -948,10 +968,10 @@ fig, ax = plt.subplots(1, 1, figsize=(15, 5))
 plt.bar(range(len(model_1hot)), model_1hot * max(model_smooth), color='red', alpha=0.2, width=1,label='model')
 plt.bar(range(len(hmm_1hot)), hmm_1hot * max(model_smooth), color='blue', alpha=0.2, width=1,label='HMM')
 plt.legend();
-plt.title(f"{case_name}: gauss_sig={gaussSig}")
+plt.title(f"{case_name}: gauss_sig={gaussSig} [sliced beginning]")
 plt.show()
-figsToPDF.append(plt.gcf())
+# figsToPDF.append(plt.gcf())
 
 #%%
-savefig(figsToPDF, os.getcwd(), savename='Hippo_HarvardOx_Juliec', tight=False, prefix="figures")
+savefig(figsToPDF, os.getcwd(), savename='Hippo_Yeo_AG', tight=False, prefix="figures")
 
