@@ -267,7 +267,7 @@ plotting.plot_stat_map(image.index_img(BOLD[1], 0), threshold=1)#, output_file=o
 plt.show(block = blck)
 #%% the story actually started at TR=15, and ended at TR=283. This is true for all the subjects,
 # except Subj18 and Subj27 who started at TR=11 and ended at TR=279
-#%% Extract the story relevant TRS only
+# Extract the story relevant TRS only
 BOLD_sliced = [image.index_img(BOLD[b], slice(15, 285)) for b in range(len(BOLD))]
 BOLD_sliced[17] = image.index_img(BOLD[17], slice(11, 281))
 # BOLD_sliced[27] = image.index_img(BOLD[27], slice(11, 279))
@@ -578,7 +578,7 @@ for r in bestHMMPerRegion:
 #%% #######################Time correlation vs. the HMM results###########################
 ##########################################################################################
 #%% To compare to MDL model boundaries, we first need to transform MDL boundaries from story to TRs
-textTiming_data = pd.read_excel('textTiming_by sentence_1.xlsx', sheet_name=3)
+textTiming_data = pd.read_excel('textTiming_by sentence_1_fixed.xlsx', sheet_name=3)
 mw_indx = np.arange(1,265,4) # row numbers corresponding to millyWay story
 word_timings = textTiming_data.iloc[mw_indx].iloc[:,7:]
 words = [] ; sentence_len = [] ; sentence_onsets = []; sentence_offsets = []
@@ -593,10 +593,10 @@ for i, row in word_timings.iterrows():
         w = w.lower()
         while len(w)>0 and w[-1] not in string.ascii_letters:
             w = w[:-1]
-            print(w)
+            # print(w)
         while len(w)>0 and w[0] not in string.ascii_letters:
             w = w[1:]
-            print(w)
+            # print(w)
         onsets.append(on + j*dt)
         words_onsets.append([w, on + j*dt])
         words.append(w)
@@ -605,15 +605,19 @@ for k,w in enumerate(words):
     assert(w==words_onsets[k][0])
 # fix some anomalies
 if words[108] == 'lamur':
+    print("lamur")
     words[108] = 'lamour'
     words_onsets[108][0] = 'lamour'
 if words[61] == 'consolt':
+    print("consolt")
     words[61] = 'consult'
     words_onsets[61][0] = 'consult'
 if words[508] == 'everybody':
+    print("everybody")
     words[508] = 'everyone'
     words_onsets[508][0] = 'everyone'
 if words[990] == 'vender':
+    print("vender")
     words[990] = 'vending'
     words_onsets[990][0] = 'vending'
 
@@ -872,6 +876,7 @@ figsToPDF.append(plt.gcf())
 ###########################################################################
 #%%  Sanity check with regions defined in Baldassano et al. 2017
 case_name = 'Angular Gyr. H-O' #"Yeo 15-16" # 'Hippocampus H-O'
+all_TR = BOLD_sliced[10]
 if "Yeo" in case_name:
     atlas = datasets.fetch_atlas_yeo_2011().thick_17
     yeo_img = image.load_img(atlas)
@@ -896,7 +901,7 @@ else:
 plotting.plot_roi(mask_img, title=label, display_mode='tiled', draw_cross=False)
 plt.show(block=blck)
 #%%
-# initialCut = 18
+initialCut = 18 ; initialCut_Y = 90
 maskedBOLD = [masking.apply_mask(BB, mask_img, dtype='f', smoothing_fwhm=None, ensure_finite=True) for BB in BOLD_sliced]
 maskedBOLD = np.array([BB[initialCut:,...].T for BB in maskedBOLD])
 #%% Need toc check statistical significance for whole brain averaged over regions
@@ -928,24 +933,32 @@ plt.title('{}:\nHeld-out subject HMM with {} events ({} perms)'.format(case_name
 plt.show(block = blck)
 # figsToPDF.append(plt.gcf())
 #%% Analyze model boundaries vs. HMM boundaries
+nSeg = 25
 ev = brainiak.eventseg.event.EventSegment(nSeg)
 ev.fit(maskedBOLD.mean(0).T)
 segments = np.argmax(ev.segments_[0], axis=1)
 HMM_ebs = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0]
 #%%# MDL part
-b = numEvents_b[len(HMM_ebs)][0]
-b_ind = np.where(bvals == b)[0][0]
-model_ebs = np.where(EB_all[b_ind])[0]
-model_ebs_in_TR_space = tokens_timings[model_ebs]
-# model_ebs_in_TR_space = tokens_timings[initialCut_Y:][model_ebs] - initialCut
+b = numEvents_b[len(HMM_ebs)+2][0]- 15
+if initialCut>0:
+    YY = Y[:,initialCut_Y:]
+    model_ebs, _ =  EB_split(YY, b=b, rep='const', sig=np.var(YY))
+    model_ebs_in_TR_space = tokens_timings[initialCut_Y:][model_ebs] - initialCut
+else:
+    b_ind = np.where(bvals == b)[0][0]
+    model_ebs = np.where(EB_all[b_ind])[0]
+    model_ebs_in_TR_space = tokens_timings[model_ebs]
+
 # round down to nearest TR (commented out: round to nearest)
 model_ebs_in_TR = np.array([int(bb) for bb in model_ebs_in_TR_space]) # np.rint(model_ebs_in_TR_space).astype(int)
 print(f"{case_name}:        MODEL====={len(model_ebs_in_TR)}=====>", model_ebs_in_TR)
 print(f"                    HMM====={len(HMM_ebs)}=====>", HMM_ebs)
 #%%
 corrWin = 50 ; gaussSig = 3
-model_1hot = np.zeros(all_surf.shape[-1]);  model_1hot[model_ebs_in_TR] = 1
-hmm_1hot = np.zeros(all_surf.shape[-1]); hmm_1hot[HMM_ebs] = 1
+# model_1hot = np.zeros(all_surf.shape[-1]);  model_1hot[model_ebs_in_TR] = 1
+# hmm_1hot = np.zeros(all_surf.shape[-1]); hmm_1hot[HMM_ebs] = 1
+model_1hot = np.zeros(maskedBOLD.shape[-1]);  model_1hot[model_ebs_in_TR] = 1
+hmm_1hot = np.zeros(maskedBOLD.shape[-1]); hmm_1hot[HMM_ebs] = 1
 # compute cross correlation between model and HMM boundaries 1 hot vectors
 cor = np.correlate(hmm_1hot, model_1hot, "same")[len(model_1hot)//2-corrWin:len(model_1hot)//2+corrWin+1] #first vec lags behind
 # folllowing Baldassano et al. find the number of model boundaries that are between 3 time points before and after an HMM boundary
@@ -965,10 +978,10 @@ fig, ax = plt.subplots(1, 1, figsize=(15, 5))
 # plt.plot(model_smooth,  color='red')
 # plt.plot(hmm_smooth,  color='blue')
 # add 1hot vectors as bars in the background
-plt.bar(range(len(model_1hot)), model_1hot * max(model_smooth), color='red', alpha=0.2, width=1,label='model')
-plt.bar(range(len(hmm_1hot)), hmm_1hot * max(model_smooth), color='blue', alpha=0.2, width=1,label='HMM')
+plt.bar(range(len(model_1hot)), model_1hot * max(model_smooth), color='red', alpha=0.2, width=1,label=f'model {len(model_ebs_in_TR)}')
+plt.bar(range(len(hmm_1hot)), hmm_1hot * max(model_smooth), color='blue', alpha=0.2, width=1,label=f'HMM {len(HMM_ebs)}')
 plt.legend();
-plt.title(f"{case_name}: gauss_sig={gaussSig} [sliced beginning]")
+plt.title(f"{case_name}: gauss_sig={gaussSig}, match= {close_cor_exc}, loose match = {close_cor} [sliced beginning]")
 plt.show()
 # figsToPDF.append(plt.gcf())
 
