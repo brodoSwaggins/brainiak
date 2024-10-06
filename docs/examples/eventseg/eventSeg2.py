@@ -675,6 +675,13 @@ for i, tt in enumerate(tokens[1:]):
     tokens_timings[i] = words_onsets[k][1]
     token_word.append([tt, words_onsets[k][0]])
     k += 1
+#%%
+def cosine_similarity(v,u):
+    return np.dot(v,u)/(np.linalg.norm(v)*np.linalg.norm(u))
+#%%  compute cosine distance between each toen and previous
+cosDist = np.zeros(Y.shape[-1]-1)
+for i in range(1, Y.shape[-1]):
+    cosDist[i-1] = 1- cosine_similarity(Y[:,i], Y[:,i-1])
 #%% Per region, find relevnat MDL boundaries and compare
 all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
 spMerge = False ; MRI_offset = 0 #todo delete after slicing data
@@ -939,7 +946,7 @@ ev.fit(maskedBOLD.mean(0).T)
 segments = np.argmax(ev.segments_[0], axis=1)
 HMM_ebs = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0]
 #%%# MDL part
-b = numEvents_b[len(HMM_ebs)-1][0]
+b = numEvents_b[len(HMM_ebs)+2][0]
 if initialCut>0:
     YY = Y[:,initialCut_Y:]
     model_ebs, _ =  EB_split(YY, b=b, rep='const', sig=np.var(YY))
@@ -956,19 +963,19 @@ print(f"{case_name}:        MODEL====={len(model_ebs_in_TR)}=====>", model_ebs_i
 print(f"                    HMM====={len(HMM_ebs)}=====>", HMM_ebs)
 #%%
 corrWin = 50 ; gaussSig = 3
-# model_1hot = np.zeros(maskedBOLD.shape[-1]) ;  model_1hot[model_ebs_in_TR] = 1
-# hmm_1hot = np.zeros(maskedBOLD.shape[-1]); hmm_1hot[HMM_ebs] = 1
+model_1hot = np.zeros(maskedBOLD.shape[-1]) ;  model_1hot[model_ebs_in_TR] = 1
+hmm_1hot = np.zeros(maskedBOLD.shape[-1]); hmm_1hot[HMM_ebs] = 1
 
 # model_1hot = np.zeros(YY.shape[-1]);  model_1hot[model_ebs] = 1
 # hmm_1hot = np.zeros(YY.shape[-1])
 # for eb in hmm_ebs_in_word_space:
 #     hmm_1hot[eb] = 1
 # model_ebs_in_TR_space = np.around(model_ebs_in_TR_space, decimals=1)
-indxs = np.arange(0,maskedBOLD.shape[-1],0.1)
-model_1hot = np.zeros(maskedBOLD.shape[-1]*10) ;  model_1hot[(model_ebs_in_TR_space*10).astype(int)] = 1
-hmm_1hot = np.zeros(maskedBOLD.shape[-1]*10)
-for eb in HMM_ebs:
-    hmm_1hot[eb*10:eb*10+10] = 1
+# indxs = np.arange(0,maskedBOLD.shape[-1],0.1)
+# model_1hot = np.zeros(maskedBOLD.shape[-1]*10) ;  model_1hot[(model_ebs_in_TR_space*10).astype(int)] = 1
+# hmm_1hot = np.zeros(maskedBOLD.shape[-1]*10)
+# for eb in HMM_ebs:
+#     hmm_1hot[eb*10:eb*10+10] = 1
 # compute cross correlation between model and HMM boundaries 1 hot vectors
 cor = np.correlate(hmm_1hot, model_1hot, "same")[len(model_1hot)//2-corrWin:len(model_1hot)//2+corrWin+1] #first vec lags behind
 # folllowing Baldassano et al. find the number of model boundaries that are between 3 time points before and after an HMM boundary
@@ -986,17 +993,33 @@ print(case_name, ':', 'boundaries', len(HMM_ebs),
                                     '\nsmoothDTW' , DTW(model_smooth, hmm_smooth))
 #%%
 fig, ax = plt.subplots(1, 1, figsize=(15, 5))
-# plt.plot(model_smooth,  color='red')
-# plt.plot(hmm_smooth,  color='blue')
+plt.plot(model_smooth,  color='red')
+plt.plot(hmm_smooth,  color='blue')
 # add 1hot vectors as bars in the background
-# plt.bar(range(len(model_1hot)), model_1hot * max(model_smooth), color='red', alpha=0.2, width=1,label=f'model {len(model_ebs_in_TR)}')
-# plt.bar(range(len(hmm_1hot)), hmm_1hot * max(model_smooth), color='blue', alpha=0.2, width=1,label=f'HMM {len(HMM_ebs)}')
-plt.fill_between(indxs, model_1hot, color='red', alpha=0.2,label=f'model {len(model_ebs_in_TR)}')
-plt.fill_between(indxs, hmm_1hot, color='blue', alpha=0.2,label=f'HMM {len(HMM_ebs)}')
-plt.scatter(np.around(tokens_timings[initialCut_Y:]-initialCut,decimals=1), 0.5*np.ones(len(tokens_timings[initialCut_Y:])),\
-            color='black',label='words', s=5, marker='+')
+plt.bar(range(len(model_1hot)), model_1hot * max(model_smooth), color='red', alpha=0.2, width=1,label=f'model {len(model_ebs_in_TR)}')
+plt.bar(range(len(hmm_1hot)), hmm_1hot * max(model_smooth), color='blue', alpha=0.2, width=1,label=f'HMM {len(HMM_ebs)}')
+# plt.fill_between(indxs, model_1hot, color='red', alpha=0.2,label=f'model {len(model_ebs_in_TR)}')
+# plt.fill_between(indxs, hmm_1hot, color='blue', alpha=0.2,label=f'HMM {len(HMM_ebs)}')
+# plt.scatter(np.around(tokens_timings[initialCut_Y:]-initialCut,decimals=1), 0.5*np.ones(len(tokens_timings[initialCut_Y:])),\
+#             color='black',label='words', s=5, marker='+')
 plt.legend(); plt.xlabel('TRs'); plt.gca().axes.get_yaxis().set_visible(False)
 plt.title(f"{case_name}: gauss_sig={gaussSig}, match= {close_cor_exc:.2f}, loose match = {close_cor:.2f} [sliced beginning]")
+plt.show()
+#%%
+tokens_timings_sliced = tokens_timings[initialCut_Y:] - initialCut
+hmm_ebs_in_word_space = [np.where((tokens_timings_sliced>=eb)*(tokens_timings_sliced<eb+1)) for eb in HMM_ebs]
+hmm_1hot_word = np.zeros(YY.shape[-1])
+for eb in hmm_ebs_in_word_space:
+    hmm_1hot_word[eb] = 1
+cosDist_sliced = cosDist[initialCut_Y-1:]
+fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+# add 1hot vectors as bars in the background
+plt.bar(range(len(hmm_1hot_word)), hmm_1hot_word * max(cosDist+0.5), color='blue', alpha=0.2, width=1,label=f'HMM {len(HMM_ebs)}')
+for i in range(len(hmm_1hot_word)):
+    if hmm_1hot_word[i]:
+        plt.scatter(i,cosDist_sliced[i],  color='green', s=10)
+plt.legend(); plt.xlabel('tokens'); plt.ylabel('cosine distance')
+plt.title(f"{case_name}: EBs vs cosine distance [sliced beginning]")
 plt.show()
 #%% Apply HMM(nSeg) directly to YY data
 ev_w = brainiak.eventseg.event.EventSegment(nSeg)
