@@ -1021,6 +1021,7 @@ cosDist_sliced = cosDist[initialCut_Y-1:]
 fig, ax = plt.subplots(1, 1, figsize=(15, 5))
 # add 1hot vectors as bars in the background
 plt.bar(range(len(hmm_1hot)), hmm_1hot * max(cosDist+0.5), color='blue', alpha=0.2, width=1,label=f'HMM {len(HMM_ebs)}')
+plt.plot(gaussian_filter1d(cosDist_sliced,  sigma=4, mode='constant', cval=0))
 # for i in range(len(hmm_1hot)):
 #     if hmm_1hot[i]:
 #         plt.scatter(i,cosDist_sliced[i],  color='green', s=10)
