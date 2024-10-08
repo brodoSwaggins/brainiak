@@ -437,9 +437,9 @@ print(f"Max number of events: {maxNumSegs}, Min number of events: {minNumSegs}")
 #################### MDL #####################################################
 ##############################################################################
 #%% import word embeddings pickle
-dataPath = ''# '/home/itzik/PycharmProjects/brainiak/docs/examples/eventseg/results/milkyway'
+dataPath =  '/home/itzik/PycharmProjects/brainiak/docs/examples/eventseg/results/milkyway/'
 task = 'milkyway'
-hiddenLayer_data = pd.read_pickle(dataPath+'milkywaygpt2-xl-c_1024.pkl')
+hiddenLayer_data = pd.read_pickle(dataPath+'milkywaygpt2-xl-c_1024_old.pkl')
 #%% PCA
 k = 50
 embeddings = np.array([np.array(a[0]) for a in hiddenLayer_data]) # [np.array(a) for a in hiddenLayer_data]
@@ -452,7 +452,7 @@ Y = Y.T
 #%% save embeddings
 np.savez('embeddingsPCA_'+task, embeddings=Y)
 #%%
-Y = np.load('embeddingsPCA_milkyway.npz')['embeddings'].T
+Y2 = np.load('embeddingsPCA_milkyway.npz')['embeddings'].T
 #%% Read pickle of embeds
 # pfile = open('/home/itzik/PycharmProjects/EventBoundaries/results/milkyway/milkywaygpt2-xl-c_1024.pkl', 'rb')
 # embeds_data = pickle.loads(pfile)
@@ -578,7 +578,7 @@ for r in bestHMMPerRegion:
 #%% #######################Time correlation vs. the HMM results###########################
 ##########################################################################################
 #%% To compare to MDL model boundaries, we first need to transform MDL boundaries from story to TRs
-textTiming_data = pd.read_excel('textTiming_by sentence_1_fixed.xlsx', sheet_name=3)
+textTiming_data = pd.read_excel('textTiming_by sentence_1.xlsx', sheet_name=3)
 mw_indx = np.arange(1,265,4) # row numbers corresponding to millyWay story
 word_timings = textTiming_data.iloc[mw_indx].iloc[:,7:]
 words = [] ; sentence_len = [] ; sentence_onsets = []; sentence_offsets = []
@@ -682,6 +682,10 @@ def cosine_similarity(v,u):
 cosDist = np.zeros(Y.shape[-1]-1)
 for i in range(1, Y.shape[-1]):
     cosDist[i-1] = 1- cosine_similarity(Y[:,i], Y[:,i-1])
+#%% load surprisal df
+surprisal_data = pd.read_csv('results/milkyway/milkywaygpt2-xl-c_1024_surp_entr.csv')
+surprisal = surprisal_data['Surprise'].values
+entr = surprisal_data['Entropy'].values
 #%% Per region, find relevnat MDL boundaries and compare
 all_surf = np.array(surfL) if side == 'left' else np.array(surfR)
 spMerge = False ; MRI_offset = 0 #todo delete after slicing data
@@ -1005,31 +1009,32 @@ fig, ax = plt.subplots(1, 1, figsize=(15, 5))
 # add 1hot vectors as bars in the background
 if space == 'TRs':
     plt.bar(range(len(model_1hot)), model_1hot * max(model_smooth), color='red', alpha=0.2, width=1,label=f'model {np.sum(model_1hot, dtype=int)}')
-    plt.bar(range(len(hmm_1hot)), hmm_1hot * max(model_smooth), color='blue', alpha=0.2, width=1,label=f'HMM {np.sum(hmm_1hot, dtype=int)}')
+    plt.bar(range(len(hmm_1hot)), hmm_1hot * max(model_smooth), color='blue', alpha=0.2, width=1,label=f'HMM {len(HMM_ebs)}')
 elif space == 'words':
     plt.fill_between(range(len(model_1hot)), model_1hot, color='red', alpha=0.2,label=f'model {np.sum(model_1hot, dtype=int)}')
-    plt.fill_between(range(len(hmm_1hot)), hmm_1hot, color='blue', alpha=0.2,label=f'HMM {np.sum(hmm_1hot, dtype=int)}')
+    plt.fill_between(range(len(hmm_1hot)), hmm_1hot, color='blue', alpha=0.2,label=f'HMM {len(HMM_ebs)}')
 # plt.scatter(np.around(tokens_timings[initialCut_Y:]-initialCut,decimals=1), 0.5*np.ones(len(tokens_timings[initialCut_Y:])),\
 #             color='black',label='words', s=5, marker='+')
 plt.legend(); plt.xlabel(space); plt.gca().axes.get_yaxis().set_visible(False)
 plt.title(f"{case_name}: gauss_sig={gaussSig}, match= {close_cor_exc:.2f}, loose match = {close_cor:.2f} [sliced beginning]")
 plt.show()
-#%% Compare HMM boundaries to cosine distance
+#%% Compare HMM boundaries to cosine distance etc.
+sup_measure  = entr
 if space != 'words':
     input("Make sure 1-hot vectors are in word space....")
-cosDist_sliced = cosDist[initialCut_Y-1:]
+sup_measure_sliced = sup_measure[initialCut_Y-1:]
 fig, ax = plt.subplots(1, 1, figsize=(15, 5))
 # add 1hot vectors as bars in the background
-plt.bar(range(len(hmm_1hot)), hmm_1hot * max(cosDist+0.5), color='blue', alpha=0.2, width=1,label=f'HMM {len(HMM_ebs)}')
-plt.plot(gaussian_filter1d(cosDist_sliced,  sigma=4, mode='constant', cval=0))
+plt.bar(range(len(hmm_1hot)), hmm_1hot * max(sup_measure_sliced+0.5), color='blue', alpha=0.2, width=1,label=f'HMM {len(HMM_ebs)}')
+plt.plot(gaussian_filter1d(sup_measure_sliced,  sigma=3, mode='constant', cval=0), label='cosine dist, smoothed', color='black')
 # for i in range(len(hmm_1hot)):
 #     if hmm_1hot[i]:
 #         plt.scatter(i,cosDist_sliced[i],  color='green', s=10)
-plt.legend(); plt.xlabel('tokens'); plt.ylabel('cosine distance')
-plt.title(f"{case_name}: EBs vs cosine distance [sliced beginning]")
+plt.legend(); plt.xlabel('tokens'); plt.ylabel('-log(P) surprisal')
+plt.title(f"{case_name}: EBs vs surprisal [sliced beginning]")
 plt.show()
 # todo write some measure of accuracy of cosine distance in predicting boundaries
-
+# compute mean cos dist across boundaries vs non-boundaries
 #%% Apply HMM(nSeg) directly to YY data
 ev_w = brainiak.eventseg.event.EventSegment(nSeg)
 ev_w.fit(YY.T)
