@@ -906,15 +906,15 @@ else:
     bool_mask = reduce(lambda x, y: x + y, [(atlas.maps.get_fdata() == i) for i in label_index])
     mask_img = nl.image.new_img_like(atlas.maps, bool_mask)
     print(label, "mask // Shape:", bool_mask.shape, ", # voxels: ", np.sum(bool_mask))
-plotting.plot_roi(mask_img, title=label, display_mode='tiled', draw_cross=False)
+plotting.plot_roi(mask_img, title=label, display_mode='tiled', draw_cross=False, cmap='viridis_r')
 plt.show(block=blck)
 #%%
 initialCut = 18 ; initialCut_Y = 90
 maskedBOLD = [masking.apply_mask(BB, mask_img, dtype='f', smoothing_fwhm=None, ensure_finite=True) for BB in BOLD_sliced]
 maskedBOLD = np.array([BB[initialCut:,...].T for BB in maskedBOLD])
 #%% Need toc check statistical significance for whole brain averaged over regions
-allBrain = np.array([BB.get_fdata() for BB in BOLD_sliced])
-allBrain = allBrain.reshape((allBrain.shape[0],-1,allBrain.shape[-1]))
+# allBrain = np.array([BB.get_fdata() for BB in BOLD_sliced])
+# allBrain = allBrain.reshape((allBrain.shape[0],-1,allBrain.shape[-1]))
 #%% Find the best number of HMM segments for the region
 segments_vals = np.arange(53, 90, 5)
 score = [] ; nPerm = 1000 ; w = 5 ; nSubj = len(files)
@@ -940,12 +940,12 @@ plt.ylabel('Within vs across boundary correlation'); plt.legend()
 plt.title('{}:\nHeld-out for HMM with {} events [sliced] ({} perms)'.format(case_name, nSeg, nPerm))
 plt.show(block = blck)
 # figsToPDF.append(plt.gcf())
-#%% Analyze model boundaries vs. HMM boundaries
+#%% Extract HMM boundaries
 ev = brainiak.eventseg.event.EventSegment(nSeg)
 ev.fit(maskedBOLD.mean(0).T)
 segments = np.argmax(ev.segments_[0], axis=1)
 HMM_ebs = np.where(np.diff(np.argmax(ev.segments_[0], axis=1)))[0]
-#%%# MDL part
+#%%# MDL part - find relevant boundaries based on language embeddings
 b = numEvents_b[len(HMM_ebs)+2][0]
 if initialCut>0:
     YY = Y[:,initialCut_Y:]
@@ -964,7 +964,7 @@ else:
 model_ebs_in_TR = np.array([int(bb) for bb in model_ebs_in_TR_space]) # np.rint(model_ebs_in_TR_space).astype(int)
 print(f"{case_name}:        MODEL====={len(model_ebs_in_TR)}=====>", model_ebs_in_TR)
 print(f"                    HMM====={len(HMM_ebs)}=====>", HMM_ebs)
-#%%
+#%% Analyze agreement of embeddings' MDL boundaries, with fMRI HMM boundaries
 corrWin = 50 ; gaussSig = 3
 space = 'words'
 if space == 'TRs':
@@ -998,7 +998,7 @@ print(case_name, ':', 'boundaries', len(HMM_ebs), f'({space} space)'
                                     '\nclose_exc', close_cor_exc,
                                     '\nsmoothMSE', MSE(model_smooth, hmm_smooth),
                                     '\nsmoothDTW' , DTW(model_smooth, hmm_smooth))
-#%%
+#%% Plot the boundaries
 fig, ax = plt.subplots(1, 1, figsize=(15, 5))
 # plt.plot(model_smooth,  color='red')
 # plt.plot(hmm_smooth,  color='blue')
@@ -1014,7 +1014,7 @@ elif space == 'words':
 plt.legend(); plt.xlabel(space); plt.gca().axes.get_yaxis().set_visible(False)
 plt.title(f"{case_name}: gauss_sig={gaussSig}, match= {close_cor_exc:.2f}, loose match = {close_cor:.2f} [sliced beginning]")
 plt.show()
-#%% Add timings of words
+#%% Compare HMM boundaries to cosine distance
 if space != 'words':
     input("Make sure 1-hot vectors are in word space....")
 cosDist_sliced = cosDist[initialCut_Y-1:]
