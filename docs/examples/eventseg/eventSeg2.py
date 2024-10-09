@@ -42,7 +42,7 @@ def getBoolMask(atlas, labels, map=None):
     mask_img = nl.image.new_img_like(map, bool_mask)
     return mask_img, bool_mask
 
-def within_across_corr(D, nEvents, w=5, nPerm=1000, verbose=0, rsd = 0):
+def within_across_corr(D, nEvents, w=5, nPerm=1000, verbose=0, rsd = 0, MDL_b = -1):
     """
     Compute within vs across boundary correlations for a given number of events
     Parameters
@@ -58,13 +58,28 @@ def within_across_corr(D, nEvents, w=5, nPerm=1000, verbose=0, rsd = 0):
     """
     nSubj, _,  nTR = D.shape
     within_across = np.zeros((nSubj, nPerm+1))
-    print(".......... Computing time correlation for HMM with {} events.............".format(nEvents))
+    if MDL_b <= 0:
+        print(".......... Computing time correlation for HMM with {} events.............".format(nEvents))
+    else:
+        print(".......... Computing time correlation for MDL with b={}.............".format(MDL_b))
+        sigD = np.var(D) ; ev = None
     for left_out in range(nSubj):
         # Fit to all but one subject
-        ev = brainiak.eventseg.event.EventSegment(nEvents)
-        ev.fit(D[np.arange(nSubj) != left_out,:,:].mean(0).T)
-        events = np.argmax(ev.segments_[0], axis=1)
-
+        if MDL_b > 0:
+            boundaries, _ = EB_split(D[np.arange(nSubj) != left_out,:,:].mean(0), b=MDL_b, rep='const', sig=sigD)
+            #  which event is each time frame
+            events = np.zeros(D.shape[-1], dtype=int)
+            event_counter = 0 ; prev_index = 0
+            for idx in boundaries:
+                events[prev_index:idx] = event_counter
+                prev_index = idx
+                event_counter += 1
+            # Assign the last event to the remaining time points
+            events[prev_index:] = event_counter
+        else:
+            ev = brainiak.eventseg.event.EventSegment(nEvents)
+            ev.fit(D[np.arange(nSubj) != left_out,:,:].mean(0).T)
+            events = np.argmax(ev.segments_[0], axis=1)
         # TEST: Compute correlations separated by w in time for the held-out subject
         corrs = np.zeros(nTR-w)
         for t in range(nTR-w):
@@ -1033,8 +1048,23 @@ plt.plot(gaussian_filter1d(sup_measure_sliced,  sigma=3, mode='constant', cval=0
 plt.legend(); plt.xlabel('tokens'); plt.ylabel('-log(P) surprisal')
 plt.title(f"{case_name}: EBs vs surprisal [sliced beginning]")
 plt.show()
-# todo write some measure of accuracy of cosine distance in predicting boundaries
+# todo write some quantitative measure of accuracy of surprisal in predicting boundaries
 # compute mean cos dist across boundaries vs non-boundaries
+#%% Apply MDL with the proper b to predicting BOLD data
+# b = numEvents_b[len(HMM_ebs)+2][0]
+for b in [114, 118, 123, 135, 129,154,161,177]:
+    nPerm=1000
+    within_across_MDL, _ = within_across_corr(maskedBOLD, len(model_ebs), w=5, nPerm=nPerm, verbose=0, MDL_b=b)
+    LOO_score_MDL = within_across_MDL[:,0].mean()
+    plt.figure(figsize=(6,16))
+    plt.violinplot(within_across_MDL[:,1:].mean(0), showextrema=True) # permuted
+    plt.scatter(1, LOO_score_MDL, label= 'Real events') # real
+    plt.gca().xaxis.set_visible(False)
+    plt.ylabel('Within vs across boundary correlation'); plt.legend()
+    plt.title('{}:\nLOO for MDL b={}[sliced] ({} perms)'.format(case_name, b, nPerm))
+    plt.annotate(f"{LOO_score_MDL:.2f}", (1, LOO_score_MDL), textcoords="offset points", xytext=(0,10), ha='center')
+    plt.show(block = blck)
+
 #%% Apply HMM(nSeg) directly to YY data
 ev_w = brainiak.eventseg.event.EventSegment(nSeg)
 ev_w.fit(YY.T)
