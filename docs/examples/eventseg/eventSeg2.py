@@ -48,10 +48,12 @@ def within_across_corr(D, nEvents, w=5, nPerm=1000, verbose=0, rsd = 0, MDL_b = 
     Parameters
     ----------
     D : np array (nSubj x nVertices x nTR)
-    nEvents : for HMM
+    nEvents : for HMM, **ignored if @MDL_b > 0**
     w : time window for time autocorrelation
     nPerm : number of permutations for statistical analysis
     verbose : 0 - no print, 1 - print log, 2 - print log and output violin plot
+    rsd : random seed
+    MDL_b : if > 0, use MDL with b=MDL_b to estimate events. Otherwise, use HMM with @nEvents
     Returns
     -------
     within_across : np array (nSubj x nPerm+1)
@@ -901,7 +903,7 @@ figsToPDF.append(plt.gcf())
 ###########################################################################
 ###########################################################################
 #%%  Sanity check with regions defined in Baldassano et al. 2017
-case_name = 'Angular Gyrus H-O'#"Heschl's Gyrus H-O" #'SPMg H-O'# "Yeo 15-16" #  'Angular Gyr. H-O'
+case_name = 'Hippocampus H-O'#"Heschl's Gyrus H-O" #'SPMg H-O'# "Yeo 15-16" #  'Angular Gyr. H-O'
 all_TR = BOLD_sliced[10]
 if "Yeo" in case_name:
     atlas = datasets.fetch_atlas_yeo_2011().thick_17
@@ -935,7 +937,7 @@ maskedBOLD = np.array([BB[initialCut:,...].T for BB in maskedBOLD])
 # allBrain = np.array([BB.get_fdata() for BB in BOLD_sliced])
 # allBrain = allBrain.reshape((allBrain.shape[0],-1,allBrain.shape[-1]))
 #%% Find the best number of HMM segments for the region
-segments_vals = np.arange(53, 90, 5)
+segments_vals = np.arange(5, 50, 1)
 score = [] ; nPerm = 1000 ; w = 5 ; nSubj = len(files)
 within_across_all = np.zeros((len(segments_vals),nSubj, nPerm+1))
 for i,nSegments in enumerate(segments_vals):
@@ -1052,18 +1054,49 @@ plt.show()
 # compute mean cos dist across boundaries vs non-boundaries
 #%% Apply MDL with the proper b to predicting BOLD data
 # b = numEvents_b[len(HMM_ebs)+2][0]
-for b in [114, 118, 123, 135, 129,154,161,177]:
-    nPerm=1000
-    within_across_MDL, _ = within_across_corr(maskedBOLD, len(model_ebs), w=5, nPerm=nPerm, verbose=0, MDL_b=b)
-    LOO_score_MDL = within_across_MDL[:,0].mean()
-    plt.figure(figsize=(6,16))
-    plt.violinplot(within_across_MDL[:,1:].mean(0), showextrema=True) # permuted
-    plt.scatter(1, LOO_score_MDL, label= 'Real events') # real
-    plt.gca().xaxis.set_visible(False)
-    plt.ylabel('Within vs across boundary correlation'); plt.legend()
-    plt.title('{}:\nLOO for MDL b={}[sliced] ({} perms)'.format(case_name, b, nPerm))
-    plt.annotate(f"{LOO_score_MDL:.2f}", (1, LOO_score_MDL), textcoords="offset points", xytext=(0,10), ha='center')
-    plt.show(block = blck)
+nPerm=1000 ; w=5 ; nSubj = len(files)
+EB_nums_ = np.arange(len(HMM_ebs)-10, len(HMM_ebs)+11,1)
+within_across_MDL_all = np.zeros((len(EB_nums_),nSubj, nPerm+1)) ; scoreMDL = []
+for i,num in enumerate(EB_nums_):
+    if num not in numEvents_b:
+        print("******skipping ", num, "events")
+        continue
+    print("************", num, "events************"+ "===>(closest num events to HMM)"*(num == len(HMM_ebs)))
+    b_ = numEvents_b[num][0] - 15 ; EB_nums_actual.append(num)
+    within_across_MDL_all[i], _ = within_across_corr(maskedBOLD, len(model_ebs), w=w, nPerm=nPerm, verbose=0, MDL_b=b_)
+    scoreMDL.append(within_across_MDL_all[i, :, 0].mean())
+    print(f"MDL within_across score: {scoreMDL[-1]}")
+# %%
+fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+plt.plot(EB_nums_actual, scoreMDL, marker='o', color='black');
+plt.title('# b values comparison [sliced begin.], {}'.format(label))
+plt.xlabel('num events');
+plt.ylabel('mean(within-across) correlation');
+ax.set_xticks(EB_nums_actual)
+plt.axhline(np.max(scoreMDL), color='black', linestyle='--', linewidth=0.5)
+plt.show(block=blck)
+# %% For the best number of events, violin plot of within-across correlation
+best_ind = np.argmax(scoreMDL)
+nEB = EB_nums_actual[best_ind]
+plt.figure(figsize=(6, 16))
+plt.violinplot(within_across_MDL_all[best_ind, :, 1:].mean(0), showextrema=True)  # permuted
+plt.scatter(1, within_across_MDL_all[best_ind, :, 0].mean(0), label='Real events')  # real
+plt.gca().xaxis.set_visible(False)
+plt.ylabel('Within vs across boundary correlation'); plt.legend()
+plt.annotate(f"{scoreMDL[best_ind]:.2f}", (1, scoreMDL[best_ind]), textcoords="offset points", xytext=(0,10), ha='center')
+plt.title('{}:\nLOO for MDL b={}, {} EBs [sliced] ({} perms)'.format(case_name, numEvents_b[nEB][0], nEB, nPerm))
+plt.show(block=blck)
+    # figsToPDF.append(plt.gcf())
+# #%%
+#
+# plt.figure(figsize=(6,16))
+# plt.violinplot(within_across_MDL[:,1:].mean(0), showextrema=True) # permuted
+# plt.scatter(1, LOO_score_MDL, label= 'Real events') # real
+# plt.gca().xaxis.set_visible(False)
+# plt.ylabel('Within vs across boundary correlation'); plt.legend()
+# plt.title('{}:\nLOO for MDL b={}, {} EBs [sliced] ({} perms)'.format(case_name, b_, num, nPerm))
+# plt.annotate(f"{LOO_score_MDL:.2f}", (1, LOO_score_MDL), textcoords="offset points", xytext=(0,10), ha='center')
+# plt.show(block = blck)
 
 #%% Apply HMM(nSeg) directly to YY data
 ev_w = brainiak.eventseg.event.EventSegment(nSeg)
