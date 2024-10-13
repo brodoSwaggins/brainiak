@@ -1055,7 +1055,8 @@ plt.show()
 #%% Apply MDL with the proper b to predicting BOLD data
 # b = numEvents_b[len(HMM_ebs)+2][0]
 nPerm=1000 ; w=5 ; nSubj = len(files)
-EB_nums_ = np.arange(len(HMM_ebs)-10, len(HMM_ebs)+11,1)
+EB_nums_actual = []
+EB_nums_ = np.arange(len(HMM_ebs)-15, len(HMM_ebs)+21,1)
 within_across_MDL_all = np.zeros((len(EB_nums_),nSubj, nPerm+1)) ; scoreMDL = []
 for i,num in enumerate(EB_nums_):
     if num not in numEvents_b:
@@ -1076,8 +1077,8 @@ ax.set_xticks(EB_nums_actual)
 plt.axhline(np.max(scoreMDL), color='black', linestyle='--', linewidth=0.5)
 plt.show(block=blck)
 # %% For the best number of events, violin plot of within-across correlation
-best_ind = np.argmax(scoreMDL)
-nEB = EB_nums_actual[best_ind]
+nEB = EB_nums_actual[np.argmax(scoreMDL)]
+best_ind = np.where(EB_nums_==nEB)[0][0]
 plt.figure(figsize=(6, 16))
 plt.violinplot(within_across_MDL_all[best_ind, :, 1:].mean(0), showextrema=True)  # permuted
 plt.scatter(1, within_across_MDL_all[best_ind, :, 0].mean(0), label='Real events')  # real
