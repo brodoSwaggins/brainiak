@@ -345,7 +345,7 @@ for i,nSegments in enumerate(segments_vals):
     within_across_all[i], _ = within_across_corr(all_region, nSegments, w, nPerm, verbose=0)
     score.append(within_across_all[i,:,0].mean())
     print(f"Number of HMM segments: {nSegments}, HMM score: {score[-1]}")
-fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+fig, ax = plt.subplots(1, 1, figsize=(15, 5))
 plt.plot(segments_vals, score, marker='o', color='black'); plt.title('num of events comparison, {}'.format(label))
 plt.xlabel('Number of events'); plt.ylabel('mean(within-across) correlation'); ax.set_xticks(segments_vals)
 plt.axhline(np.max(score), color='black', linestyle='--', linewidth=0.5)
@@ -1063,13 +1063,13 @@ for i,num in enumerate(EB_nums_):
         print("******skipping ", num, "events")
         continue
     print("************", num, "events************"+ "===>(closest num events to HMM)"*(num == len(HMM_ebs)))
-    b_ = numEvents_b[num][0] - 15 ; EB_nums_actual.append(num)
+    b_ = numEvents_b[num][0] ; EB_nums_actual.append(num)
     within_across_MDL_all[i], _ = within_across_corr(maskedBOLD, len(model_ebs), w=w, nPerm=nPerm, verbose=0, MDL_b=b_)
     scoreMDL.append(within_across_MDL_all[i, :, 0].mean())
     print(f"MDL within_across score: {scoreMDL[-1]}")
-# %%
-fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-plt.plot(EB_nums_actual, scoreMDL, marker='o', color='black');
+ #%%
+fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+plt.plot(EB_nums_actual, scoreMDL, '--', marker='o', color='black');
 plt.title('# b values comparison [sliced begin.], {}'.format(label))
 plt.xlabel('num events');
 plt.ylabel('mean(within-across) correlation');
@@ -1077,29 +1077,83 @@ ax.set_xticks(EB_nums_actual)
 plt.axhline(np.max(scoreMDL), color='black', linestyle='--', linewidth=0.5)
 plt.show(block=blck)
 # %% For the best number of events, violin plot of within-across correlation
-nEB = EB_nums_actual[np.argmax(scoreMDL)]
+nEB = EB_nums_actual[np.argmax(scoreMDL)] # 34 for hippocampus
 best_ind = np.where(EB_nums_==nEB)[0][0]
 plt.figure(figsize=(6, 16))
 plt.violinplot(within_across_MDL_all[best_ind, :, 1:].mean(0), showextrema=True)  # permuted
 plt.scatter(1, within_across_MDL_all[best_ind, :, 0].mean(0), label='Real events')  # real
 plt.gca().xaxis.set_visible(False)
 plt.ylabel('Within vs across boundary correlation'); plt.legend()
-plt.annotate(f"{scoreMDL[best_ind]:.2f}", (1, scoreMDL[best_ind]), textcoords="offset points", xytext=(0,10), ha='center')
+plt.annotate(f"{scoreMDL[np.argmax(scoreMDL)]:.2f}", (1, scoreMDL[np.argmax(scoreMDL)]), textcoords="offset points", xytext=(0,10), ha='center')
 plt.title('{}:\nLOO for MDL b={}, {} EBs [sliced] ({} perms)'.format(case_name, numEvents_b[nEB][0], nEB, nPerm))
 plt.show(block=blck)
-    # figsToPDF.append(plt.gcf())
-# #%%
-#
-# plt.figure(figsize=(6,16))
-# plt.violinplot(within_across_MDL[:,1:].mean(0), showextrema=True) # permuted
-# plt.scatter(1, LOO_score_MDL, label= 'Real events') # real
-# plt.gca().xaxis.set_visible(False)
-# plt.ylabel('Within vs across boundary correlation'); plt.legend()
-# plt.title('{}:\nLOO for MDL b={}, {} EBs [sliced] ({} perms)'.format(case_name, b_, num, nPerm))
-# plt.annotate(f"{LOO_score_MDL:.2f}", (1, LOO_score_MDL), textcoords="offset points", xytext=(0,10), ha='center')
-# plt.show(block = blck)
+#%% NOw compare to timings on words using the same b
+best_b = numEvents_b[nEB][0]
+bold_boundaries, _ = EB_split(maskedBOLD.mean(0), b=best_b, rep='const', sig=np.var(maskedBOLD)) ; bold_boundaries = np.array(bold_boundaries)
+word_boundaries, _ =  EB_split(YY, b=best_b, rep='const', sig=np.var(YY)) ; word_boundaries = np.array(word_boundaries)
+word_boundaries_in_TR_space = tokens_timings_sliced[word_boundaries]
+bold_boundaries_in_word_space = [np.where((tokens_timings_sliced >= eb) * (tokens_timings_sliced < eb + 1)) for eb in
+                             bold_boundaries]
+# round down to nearest TR (commented out: round to nearest)
 
-#%% Apply HMM(nSeg) directly to YY data
+word_boundaries_in_TR = np.array([int(bb) for bb in word_boundaries_in_TR_space])
+print(f"{case_name}: b={best_b}        MDL on words====={len(word_boundaries_in_TR)}=====>", word_boundaries_in_TR)
+print(f"                    MDL on fMRI====={len(bold_boundaries)}=====>", bold_boundaries)
+#%% Analyze agreement of embeddings' MDL boundaries, with fMRI HMM boundaries
+corrWin = 50 ; gaussSig = 3
+space = 'TRs'
+if space == 'TRs':
+    words_1hot = np.zeros(maskedBOLD.shape[-1]) ;  words_1hot[word_boundaries_in_TR] = 1
+    bold_1hot = np.zeros(maskedBOLD.shape[-1]); bold_1hot[bold_boundaries] = 1
+    closeness = maskedBOLD.shape[-1]/len(bold_boundaries)
+elif space == 'words':
+    words_1hot = np.zeros(YY.shape[-1]);  words_1hot[word_boundaries] = 1
+    bold_1hot = np.zeros(YY.shape[-1])
+    closeness = YY.shape[-1]/len(bold_boundaries)
+    for eb in bold_boundaries_in_word_space:
+        bold_1hot[eb] = 1
+else:
+    print("error")
+# model_ebs_in_TR_space = np.around(model_ebs_in_TR_space, decimals=1)
+# indxs = np.arange(0,maskedBOLD.shape[-1],0.1)
+# model_1hot = np.zeros(maskedBOLD.shape[-1]*10) ;  model_1hot[(model_ebs_in_TR_space*10).astype(int)] = 1
+# hmm_1hot = np.zeros(maskedBOLD.shape[-1]*10)
+# for eb in HMM_ebs:
+#     hmm_1hot[eb*10:eb*10+10] = 1
+# compute cross correlation between model and HMM boundaries 1 hot vectors
+cor = np.correlate(bold_1hot, words_1hot, "same")[len(words_1hot)//2-corrWin:len(words_1hot)//2+corrWin+1] #first vec lags behind
+# folllowing Baldassano et al. find the number of model boundaries that are between 3 time points before and after an HMM boundary
+window = YY.shape[-1]/len(bold_boundaries)
+close_cor = count_close_ones(words_1hot, bold_1hot, closeness)/sum(words_1hot)
+close_cor_exc = count_close_ones(words_1hot, bold_1hot, closeness, exclusive=True)/sum(words_1hot)
+# Gaussian Smoothing correlation
+words_smooth = gaussian_filter1d(words_1hot, sigma=gaussSig, mode='constant', cval=0)
+bold_smooth = gaussian_filter1d(bold_1hot, sigma=gaussSig, mode='constant', cval=0)
+print(case_name, ':', 'boundaries', len(HMM_ebs), f'({space} space)'
+                                    '\ncrossCor', np.max(cor)/min(sum(bold_1hot), sum(words_1hot)),
+                                    '\nlag', np.argwhere(cor == np.amax(cor)) - corrWin, # pos lag means model leads HMM (good)
+                                    '\nclose', close_cor,
+                                    '\nclose_exc', close_cor_exc,
+                                    '\nsmoothMSE', MSE(words_smooth, bold_smooth),
+                                    '\nsmoothDTW' , DTW(words_smooth, bold_smooth))
+#%% Plot the boundaries
+fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+# plt.plot(words_smooth,  color='orange')
+# plt.plot(bold_smooth,  color='teal')
+# add 1hot vectors as bars in the background
+if space == 'TRs':
+    plt.bar(range(len(words_1hot)), words_1hot * max(words_smooth), color='orange', alpha=0.2, width=1,label=f'words {np.sum(words_1hot, dtype=int)}')
+    plt.bar(range(len(bold_1hot)), bold_1hot * max(words_smooth), color='teal', alpha=0.2, width=1,label=f'Brain {len(bold_boundaries)}')
+elif space == 'words':
+    plt.fill_between(range(len(words_1hot)), words_1hot, color='orange', alpha=0.2,label=f'model {np.sum(words_1hot, dtype=int)}')
+    plt.fill_between(range(len(bold_1hot)), bold_1hot, color='teal', alpha=0.2,label=f'HMM {len(bold_boundaries)}')
+# plt.scatter(np.around(tokens_timings[initialCut_Y:]-initialCut,decimals=1), 0.5*np.ones(len(tokens_timings[initialCut_Y:])),\
+#             color='black',label='words', s=5, marker='+')
+plt.legend(); plt.xlabel(space); plt.gca().axes.get_yaxis().set_visible(False)
+plt.title(f"[MDL-MDL] {case_name}: gauss_sig={gaussSig}, match= {close_cor_exc:.2f}, loose match = {close_cor:.2f} [sliced beginning]")
+plt.show()
+
+#%% HMM - HMM
 ev_w = brainiak.eventseg.event.EventSegment(nSeg)
 ev_w.fit(YY.T)
 #%%
@@ -1111,6 +1165,9 @@ print(f"{case_name}:        words HMM====={len(wordHMM_ebs_in_TR)}=====>", wordH
 print(f"                    BOLD HMM====={len(HMM_ebs)}=====>", HMM_ebs)
 #%%
 wordHMM_1hot = np.zeros(maskedBOLD.shape[-1]);  wordHMM_1hot[wordHMM_ebs_in_TR] = 1
+hmm_1hot = np.zeros(maskedBOLD.shape[-1]); hmm_1hot[HMM_ebs] = 1
+closeness = maskedBOLD.shape[-1]/len(HMM_ebs)
+corrWin = 50 ; gaussSig = 3
 # compute cross correlation between model and HMM boundaries 1 hot vectors
 cor_w = np.correlate(hmm_1hot, wordHMM_1hot, "same")[len(wordHMM_1hot)//2-corrWin:len(wordHMM_1hot)//2+corrWin+1] #first vec lags behind
 # folllowing Baldassano et al. find the number of model boundaries that are between 3 time points before and after an HMM boundary
@@ -1127,16 +1184,33 @@ print(case_name, ': ***HMM vs HMM***', 'boundaries', len(HMM_ebs),
                                     '\nsmoothMSE', MSE(wordHMM_smooth, hmm_smooth),
                                     '\nsmoothDTW' , DTW(wordHMM_smooth, hmm_smooth))
 fig, ax = plt.subplots(1, 1, figsize=(15, 5))
-plt.plot(wordHMM_smooth,  color='green')
-plt.plot(hmm_smooth,  color='blue')
+# plt.plot(wordHMM_smooth,  color='crimson')
+# plt.plot(hmm_smooth,  color='darkblue')
 # add 1hot vectors as bars in the background
-plt.bar(range(len(wordHMM_1hot)), wordHMM_1hot * max(wordHMM_smooth), color='green', alpha=0.2, width=1,label=f'words {len(wordHMM_ebs_in_TR)}')
-plt.bar(range(len(hmm_1hot)), hmm_1hot * max(wordHMM_smooth), color='blue', alpha=0.2, width=1,label=f'BOLD {len(HMM_ebs)}')
+plt.bar(range(len(wordHMM_1hot)), wordHMM_1hot * max(wordHMM_smooth), color='crimson', alpha=0.2, width=1,label=f'words {len(wordHMM_ebs_in_TR)}')
+plt.bar(range(len(hmm_1hot)), hmm_1hot * max(wordHMM_smooth), color='darkblue', alpha=0.2, width=1,label=f'brain {len(HMM_ebs)}')
 plt.legend()
-plt.title(f"{case_name}: ** HMM v. HMM **, match= {close_cor_exc_w:.2f}, loose match = {close_cor_w:.2f} [sliced beginning]")
+plt.title(f"[HMM-HMM]{case_name}: match= {close_cor_exc_w:.2f}, loose match = {close_cor_w:.2f} [sliced beginning]")
 plt.show()
 #%%
 figsToPDF.append(plt.gcf())
 #%%
 savefig(figsToPDF, os.getcwd(), savename='Hippo_Yeo_AG', tight=False, prefix="figures")
 
+#%%
+lastb = numEvents_b[2][0] # lowest b that gives this number of events
+for nn in np.arange(2, 52, 1):
+    if nn not in numEvents_b.keys():
+        b_new = lastb ; nevents = nn-1
+        while nevents < nn and b_new > lastb-1:
+            b_new -= 0.25
+            print("trying to get ", nn, "events with b=", b_new)
+            bn, _ = EB_split(Y, b=b_new, rep='const', sig=np.var(Y))
+            nevents = len(bn)
+            if nevents == nn:
+                print("====> got ", nevents, "events!!!!!!!!!!")
+            else:
+                print("***still got ", nevents, "events")
+
+    else:
+        lastb = numEvents_b[nn][0]
