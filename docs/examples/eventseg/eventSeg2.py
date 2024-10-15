@@ -223,9 +223,6 @@ def DTW(vector1: np.ndarray, vector2: np.ndarray) -> float:
     # Return the DTW distance (bottom-right corner of the matrix)
     return dtw_matrix[n, m]
 
-
-import numpy as np
-
 def MSE(vector1: np.ndarray, vector2: np.ndarray) -> float:
     if len(vector1) != len(vector2):
         raise ValueError("Vectors must be of the same length.")
@@ -273,20 +270,21 @@ all_TR = ffz
 print(all_TR.shape)
 first_TR = image.index_img(ffz, 0)
 print(first_TR.shape)
-plotting.plot_stat_map(first_TR, threshold=1)#, output_file=output_dir / "first_TR.png")
+plotting.plot_stat_map(first_TR, threshold=1, cut_coords=(-4,-27,18))#, output_file=output_dir / "first_TR.png")
 plt.show(block = blck)
 #%% Z score all data
 masker = nl.maskers.MultiNiftiMasker(standardize=True)
 BOLD = masker.fit_transform(file_names)
 BOLD = masker.inverse_transform(BOLD)
 #%% First subject the same?
-plotting.plot_stat_map(image.index_img(BOLD[1], 0), threshold=1)#, output_file=output_dir / "first_TR.png")
+plotting.plot_stat_map(image.index_img(BOLD[1], 0), threshold=1, cut_coords=(-4,-27,18))#, output_file=output_dir / "first_TR.png")
 plt.show(block = blck)
 #%% the story actually started at TR=15, and ended at TR=283. This is true for all the subjects,
 # except Subj18 and Subj27 who started at TR=11 and ended at TR=279
 # Extract the story relevant TRS only
 BOLD_sliced = [image.index_img(BOLD[b], slice(15, 285)) for b in range(len(BOLD))]
-BOLD_sliced[17] = image.index_img(BOLD[17], slice(11, 281))
+outlier_ind = np.where(["subj18" in f for f in file_names])[0][0]
+BOLD_sliced[outlier_ind] = image.index_img(BOLD[outlier_ind], slice(11, 281))
 # BOLD_sliced[27] = image.index_img(BOLD[27], slice(11, 279))
 
 #%% Project to cortical surface
@@ -456,10 +454,11 @@ print(f"Max number of events: {maxNumSegs}, Min number of events: {minNumSegs}")
 #%% import word embeddings pickle
 dataPath =  '/home/itzik/PycharmProjects/brainiak/docs/examples/eventseg/results/milkyway/'
 task = 'milkyway'
-hiddenLayer_data = pd.read_pickle(dataPath+'milkywaygpt2-xl-c_1024_old.pkl')
+hiddenLayer_data = pd.read_pickle(dataPath+'milkywaygpt2-xl-c_1024.pkl')
+
 #%% PCA
 k = 50
-embeddings = np.array([np.array(a[0]) for a in hiddenLayer_data]) # [np.array(a) for a in hiddenLayer_data]
+embeddings = np.array([np.array(a) for a in hiddenLayer_data]) # [np.array(a) for a in hiddenLayer_data]
 pca = PCA(n_components=k, whiten=False, random_state=42)
 Y = pca.fit_transform(embeddings)
 # Rescale
@@ -987,13 +986,15 @@ print(f"{case_name}:        MODEL====={len(model_ebs_in_TR)}=====>", model_ebs_i
 print(f"                    HMM====={len(HMM_ebs)}=====>", HMM_ebs)
 #%% Analyze agreement of embeddings' MDL boundaries, with fMRI HMM boundaries
 corrWin = 50 ; gaussSig = 3
-space = 'words'
+space = 'TRs'
 if space == 'TRs':
     model_1hot = np.zeros(maskedBOLD.shape[-1]) ;  model_1hot[model_ebs_in_TR] = 1
     hmm_1hot = np.zeros(maskedBOLD.shape[-1]); hmm_1hot[HMM_ebs] = 1
+    close_dist = np.rint(maskedBOLD.shape[-1] / (2*len(HMM_ebs)))
 elif space == 'words':
     model_1hot = np.zeros(YY.shape[-1]);  model_1hot[model_ebs] = 1
     hmm_1hot = np.zeros(YY.shape[-1])
+    close_dist = np.rint(YY.shape[-1] / (2*len(HMM_ebs)))
     for eb in hmm_ebs_in_word_space:
         hmm_1hot[eb] = 1
 else:
@@ -1007,8 +1008,8 @@ else:
 # compute cross correlation between model and HMM boundaries 1 hot vectors
 cor = np.correlate(hmm_1hot, model_1hot, "same")[len(model_1hot)//2-corrWin:len(model_1hot)//2+corrWin+1] #first vec lags behind
 # folllowing Baldassano et al. find the number of model boundaries that are between 3 time points before and after an HMM boundary
-close_cor = count_close_ones(model_1hot, hmm_1hot, 3)/sum(model_1hot)
-close_cor_exc = count_close_ones(model_1hot, hmm_1hot, 3, exclusive=True)/sum(model_1hot)
+close_cor = count_close_ones(model_1hot, hmm_1hot, close_dist)/sum(model_1hot)
+close_cor_exc = count_close_ones(model_1hot, hmm_1hot, close_dist, exclusive=True)/sum(model_1hot)
 # Gaussian Smoothing correlation
 model_smooth = gaussian_filter1d(model_1hot, sigma=gaussSig, mode='constant', cval=0)
 hmm_smooth = gaussian_filter1d(hmm_1hot, sigma=gaussSig, mode='constant', cval=0)
@@ -1077,7 +1078,7 @@ ax.set_xticks(EB_nums_actual)
 plt.axhline(np.max(scoreMDL), color='black', linestyle='--', linewidth=0.5)
 plt.show(block=blck)
 # %% For the best number of events, violin plot of within-across correlation
-nEB = EB_nums_actual[np.argmax(scoreMDL)] # 34 for hippocampus
+nEB = EB_nums_actual[np.argmax(scoreMDL)] # 34 for hippocampus # todo change to where it starts to plateau
 best_ind = np.where(EB_nums_==nEB)[0][0]
 plt.figure(figsize=(6, 16))
 plt.violinplot(within_across_MDL_all[best_ind, :, 1:].mean(0), showextrema=True)  # permuted
@@ -1105,11 +1106,11 @@ space = 'TRs'
 if space == 'TRs':
     words_1hot = np.zeros(maskedBOLD.shape[-1]) ;  words_1hot[word_boundaries_in_TR] = 1
     bold_1hot = np.zeros(maskedBOLD.shape[-1]); bold_1hot[bold_boundaries] = 1
-    closeness = maskedBOLD.shape[-1]/len(bold_boundaries)
+    close_dist = np.rint(maskedBOLD.shape[-1]/(2*len(bold_boundaries)))
 elif space == 'words':
     words_1hot = np.zeros(YY.shape[-1]);  words_1hot[word_boundaries] = 1
     bold_1hot = np.zeros(YY.shape[-1])
-    closeness = YY.shape[-1]/len(bold_boundaries)
+    close_dist = np.rint(YY.shape[-1]/(2*len(bold_boundaries)))
     for eb in bold_boundaries_in_word_space:
         bold_1hot[eb] = 1
 else:
@@ -1124,8 +1125,8 @@ else:
 cor = np.correlate(bold_1hot, words_1hot, "same")[len(words_1hot)//2-corrWin:len(words_1hot)//2+corrWin+1] #first vec lags behind
 # folllowing Baldassano et al. find the number of model boundaries that are between 3 time points before and after an HMM boundary
 window = YY.shape[-1]/len(bold_boundaries)
-close_cor = count_close_ones(words_1hot, bold_1hot, closeness)/sum(words_1hot)
-close_cor_exc = count_close_ones(words_1hot, bold_1hot, closeness, exclusive=True)/sum(words_1hot)
+close_cor = count_close_ones(words_1hot, bold_1hot, close_dist)/sum(words_1hot)
+close_cor_exc = count_close_ones(words_1hot, bold_1hot, close_dist, exclusive=True)/sum(words_1hot)
 # Gaussian Smoothing correlation
 words_smooth = gaussian_filter1d(words_1hot, sigma=gaussSig, mode='constant', cval=0)
 bold_smooth = gaussian_filter1d(bold_1hot, sigma=gaussSig, mode='constant', cval=0)
