@@ -149,7 +149,7 @@ import numpy as np
 import numpy as np
 
 
-def count_close_ones(model: np.ndarray, data: np.ndarray, distance: int = 3, exclusive=False) -> int:
+def count_close_ones(model: np.ndarray, data: np.ndarray, distance: int = 3, nPerm=0, exclusive=False, rsd=0):
     """
     Counts the number of 1's in the 'model' time series that are within a specified distance
     of a 1 in the 'data' time series, ensuring that each 1 in 'data' can only be matched once.
@@ -158,9 +158,11 @@ def count_close_ones(model: np.ndarray, data: np.ndarray, distance: int = 3, exc
     - model (np.ndarray): The model time-series vector (1D array of 0s and 1s).
     - data (np.ndarray): The data time-series vector (1D array of 0s and 1s).
     - distance (int): The distance within which to count the close ones.
+    - nPerm (int): Number of permutations to run for statistical testing. if 0, no permutations are run.
 
     Returns:
     - int: The count of 1's in 'model' that are within 'distance' time points from a 1 in 'data'.
+
     """
     # Ensure model and data are numpy arrays and have the same length
     if len(model) != len(data):
@@ -169,23 +171,35 @@ def count_close_ones(model: np.ndarray, data: np.ndarray, distance: int = 3, exc
     # Find indices of 1s in model and data
     model_indices = np.where(model == 1)[0]
     data_indices = np.where(data == 1)[0]
+    events = np.zeros(len(data), dtype=int)
+    event_counter = 0; prev_index = 0
+    for idx in model_indices:
+        events[prev_index:idx] = event_counter
+        prev_index = idx
+        event_counter += 1
+    # Assign the last event to the remaining time points
+    events[prev_index:] = event_counter
+    _, event_lengths = np.unique(events, return_counts=True)
 
-    # Create a set to keep track of which data indices have been used
-    used_data_indices = set()  # Change: Initialize a set to track matched data indices
+    np.random.seed(rsd) ; perms_count = np.zeros(nPerm+1)
+    for p in range(nPerm+1):  # p=0 is the real events (no permuataion)
+        used_data_indices = set()  # Exclusive: Initialize a set to track matched data indices
+        # For each 1 in the model, check if there is an unmatched 1 in the data within the specified distance
+        for model_index in model_indices:
+            # Find a data index within the range [model_index - distance, model_index + distance]
+            for data_index in data_indices:
+                if abs(model_index - data_index) <= distance and data_index not in used_data_indices:
+                    perms_count[p] += 1
+                    if exclusive:
+                        used_data_indices.add(data_index)  # Change: Mark this data index as used
+                    break  #Move to the next model_index after finding a match
+        perm_lengths = np.random.permutation(event_lengths)
+        model = np.zeros(len(data), dtype=int)
+        model[np.cumsum(perm_lengths[:-1])] = 1
+        model_indices = np.where(model == 1)[0]
+        # This makes the next itertion run over a permuted version of the event lengths
 
-    count = 0
-
-    # For each 1 in the model, check if there is an unmatched 1 in the data within the specified distance
-    for model_index in model_indices:
-        # Find a data index within the range [model_index - distance, model_index + distance]
-        for data_index in data_indices:
-            if abs(model_index - data_index) <= distance and data_index not in used_data_indices:
-                count += 1
-                if exclusive:
-                    used_data_indices.add(data_index)  # Change: Mark this data index as used
-                break  # Change: Move to the next model_index after finding a match
-
-    return count
+    return perms_count
 def moving_average_smooth(vector, window_size=3):
     return np.convolve(vector, np.ones(window_size)/window_size, mode='same')
 def exponential_smooth(vector, alpha=0.3):
@@ -1101,7 +1115,7 @@ word_boundaries_in_TR = np.array([int(bb) for bb in word_boundaries_in_TR_space]
 print(f"{case_name}: b={best_b}        MDL on words====={len(word_boundaries_in_TR)}=====>", word_boundaries_in_TR)
 print(f"                    MDL on fMRI====={len(bold_boundaries)}=====>", bold_boundaries)
 #%% Analyze agreement of embeddings' MDL boundaries, with fMRI HMM boundaries
-corrWin = 50 ; gaussSig = 3
+corrWin = 50 ; gaussSig = 3 ; perms = 1000 # zero for no statistical test
 space = 'TRs'
 if space == 'TRs':
     words_1hot = np.zeros(maskedBOLD.shape[-1]) ;  words_1hot[word_boundaries_in_TR] = 1
@@ -1125,33 +1139,42 @@ else:
 cor = np.correlate(bold_1hot, words_1hot, "same")[len(words_1hot)//2-corrWin:len(words_1hot)//2+corrWin+1] #first vec lags behind
 # folllowing Baldassano et al. find the number of model boundaries that are between 3 time points before and after an HMM boundary
 window = YY.shape[-1]/len(bold_boundaries)
-close_cor = count_close_ones(words_1hot, bold_1hot, close_dist)/sum(words_1hot)
-close_cor_exc = count_close_ones(words_1hot, bold_1hot, close_dist, exclusive=True)/sum(words_1hot)
+close_cor = count_close_ones(words_1hot, bold_1hot, close_dist, perms)/sum(words_1hot)
+close_cor_exc = count_close_ones(words_1hot, bold_1hot, close_dist, perms, exclusive=True)/sum(words_1hot)
 # Gaussian Smoothing correlation
 words_smooth = gaussian_filter1d(words_1hot, sigma=gaussSig, mode='constant', cval=0)
 bold_smooth = gaussian_filter1d(bold_1hot, sigma=gaussSig, mode='constant', cval=0)
 print(case_name, ':', 'boundaries', len(HMM_ebs), f'({space} space)'
                                     '\ncrossCor', np.max(cor)/min(sum(bold_1hot), sum(words_1hot)),
                                     '\nlag', np.argwhere(cor == np.amax(cor)) - corrWin, # pos lag means model leads HMM (good)
-                                    '\nclose', close_cor,
-                                    '\nclose_exc', close_cor_exc,
+                                    '\nclose', close_cor[0],
+                                    '\nclose_exc', close_cor_exc[0],
                                     '\nsmoothMSE', MSE(words_smooth, bold_smooth),
                                     '\nsmoothDTW' , DTW(words_smooth, bold_smooth))
 #%% Plot the boundaries
-fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+if perms == 0:
+    fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+else:
+    fig, axs = plt.subplots(2, 1, figsize=(15, 10))
+    ax, ax1 = axs
+    ax1.violinplot(close_cor_exc[1:], showmeans=True, showextrema=True, vert=False)  # permuted
+    ax1.scatter(close_cor_exc[0],1) # real
+    plt.gca().xaxis.set_visible(False)
+    ax1.set_ylabel('Within vs across boundary correlation')
+
 # plt.plot(words_smooth,  color='orange')
 # plt.plot(bold_smooth,  color='teal')
 # add 1hot vectors as bars in the background
 if space == 'TRs':
-    plt.bar(range(len(words_1hot)), words_1hot * max(words_smooth), color='orange', alpha=0.2, width=1,label=f'words {np.sum(words_1hot, dtype=int)}')
-    plt.bar(range(len(bold_1hot)), bold_1hot * max(words_smooth), color='teal', alpha=0.2, width=1,label=f'Brain {len(bold_boundaries)}')
+    ax.bar(range(len(words_1hot)), words_1hot * max(words_smooth), color='orange', alpha=0.2, width=1,label=f'words {np.sum(words_1hot, dtype=int)}')
+    ax.bar(range(len(bold_1hot)), bold_1hot * max(words_smooth), color='teal', alpha=0.2, width=1,label=f'Brain {len(bold_boundaries)}')
 elif space == 'words':
-    plt.fill_between(range(len(words_1hot)), words_1hot, color='orange', alpha=0.2,label=f'model {np.sum(words_1hot, dtype=int)}')
-    plt.fill_between(range(len(bold_1hot)), bold_1hot, color='teal', alpha=0.2,label=f'HMM {len(bold_boundaries)}')
+    ax.fill_between(range(len(words_1hot)), words_1hot, color='orange', alpha=0.2,label=f'model {np.sum(words_1hot, dtype=int)}')
+    ax.fill_between(range(len(bold_1hot)), bold_1hot, color='teal', alpha=0.2,label=f'HMM {len(bold_boundaries)}')
 # plt.scatter(np.around(tokens_timings[initialCut_Y:]-initialCut,decimals=1), 0.5*np.ones(len(tokens_timings[initialCut_Y:])),\
 #             color='black',label='words', s=5, marker='+')
-plt.legend(); plt.xlabel(space); plt.gca().axes.get_yaxis().set_visible(False)
-plt.title(f"[MDL-MDL] {case_name}: gauss_sig={gaussSig}, match= {close_cor_exc:.2f}, loose match = {close_cor:.2f} [sliced beginning]")
+ax.legend(); ax.set_xlabel(space); plt.gca().axes.get_yaxis().set_visible(False)
+ax.set_title(f"[MDL-MDL] {case_name}: gauss_sig={gaussSig}, match= {close_cor_exc[0]:.2f}, loose match = {close_cor[0]:.2f} [sliced beginning]")
 plt.show()
 
 #%% HMM - HMM
