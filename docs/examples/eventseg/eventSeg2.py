@@ -902,7 +902,7 @@ figsToPDF.append(plt.gcf())
 ###########################################################################
 ###########################################################################
 #%%  Sanity check with regions defined in Baldassano et al. 2017
-case_name = 'Hippocampus H-O'#"Heschl's Gyrus H-O" #'SPMg H-O'# "Yeo 15-16" #  'Angular Gyr. H-O'
+case_name = 'Angular Gyr. H-O'#"Heschl's Gyrus H-O" #'SPMg H-O'# "Yeo 15-16" #  'Angular Gyr. H-O'
 all_TR = BOLD_sliced[10]
 if "Yeo" in case_name:
     atlas = datasets.fetch_atlas_yeo_2011().thick_17
@@ -936,7 +936,7 @@ maskedBOLD = np.array([BB[initialCut:,...].T for BB in maskedBOLD])
 # allBrain = np.array([BB.get_fdata() for BB in BOLD_sliced])
 # allBrain = allBrain.reshape((allBrain.shape[0],-1,allBrain.shape[-1]))
 #%% Find the best number of HMM segments for the region
-segments_vals = np.arange(5, 50, 1)
+segments_vals = np.arange(10, 50, 1)
 score = [] ; nPerm = 1000 ; w = 5 ; nSubj = len(files)
 within_across_all = np.zeros((len(segments_vals),nSubj, nPerm+1))
 for i,nSegments in enumerate(segments_vals):
@@ -1055,6 +1055,7 @@ plt.show()
 # compute mean cos dist across boundaries vs non-boundaries
 #%% Apply MDL with the proper b to predicting BOLD data
 # b = numEvents_b[len(HMM_ebs)+2][0]
+# todo improve this by removing values from EB_nums_ and correspomding rows from within_across whenever skipping (instead of saving "actual")
 nPerm=1000 ; w=5 ; nSubj = len(files)
 EB_nums_actual = []
 EB_nums_ = np.arange(len(HMM_ebs)-15, len(HMM_ebs)+21,1)
@@ -1078,7 +1079,7 @@ ax.set_xticks(EB_nums_actual)
 plt.axhline(np.max(scoreMDL), color='black', linestyle='--', linewidth=0.5)
 plt.show(block=blck)
 # %% For the best number of events, violin plot of within-across correlation
-nEB = EB_nums_actual[np.argmax(scoreMDL)] # 34 for hippocampus # todo change to where it starts to plateau
+nEB = EB_nums_actual[np.argmax(scoreMDL)] # 37 for AG but try 27 todo change to where it starts to plateau
 best_ind = np.where(EB_nums_==nEB)[0][0]
 plt.figure(figsize=(6, 16))
 plt.violinplot(within_across_MDL_all[best_ind, :, 1:].mean(0), showextrema=True)  # permuted
@@ -1196,7 +1197,7 @@ plt.show()
 #%%
 figsToPDF.append(plt.gcf())
 #%%
-savefig(figsToPDF, os.getcwd(), savename='Hippo_Yeo_AG', tight=False, prefix="figures")
+savefig(figsToPDF, os.getcwd(), savename='AG_HO_dualMDL_dualHMM', tight=False, prefix="figures")
 
 #%%
 lastb = numEvents_b[2][0] # lowest b that gives this number of events
