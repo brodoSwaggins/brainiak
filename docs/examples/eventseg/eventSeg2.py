@@ -41,7 +41,26 @@ def getBoolMask(atlas, labels, map=None):
     bool_mask = reduce(lambda x, y: x + y, [(map.get_fdata() == i) for i in label_index])
     mask_img = nl.image.new_img_like(map, bool_mask)
     return mask_img, bool_mask
+def ISC(D):
+    """
+    Inter-subject correlation of each voxel in the data - for each subj, the correlation of the time series of each voxel with
+    the average of all subjects, then average over all subjects.
+    Parameters
+    ----------
+    D - np array (nSubj x nVertices x nTR) - fMRI data
 
+    Returns
+    -------
+    ISC - np array(nVertices) - ISC of each voxel
+    """
+    nSubj, nVox, nTR = D.shape
+    ISC = np.zeros((nVox))
+    for left_out in range(nSubj):
+        D_avg = D[np.arange(nSubj) != left_out].mean(0)
+        for v in range(nVox):
+            ISC[v] += pearsonr(D[left_out, v, :], D_avg[v, :])[0]
+    ISC /= nSubj
+    return ISC
 def within_across_corr(D, nEvents, w=5, nPerm=1000, verbose=0, rsd = 0, MDL_b = -1):
     """
     Compute within vs across boundary correlations for a given number of events
