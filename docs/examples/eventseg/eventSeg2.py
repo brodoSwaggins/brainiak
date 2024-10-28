@@ -497,30 +497,31 @@ Y2 = np.load('embeddingsPCA_milkyway.npz')['embeddings'].T
 # For each word in embeds, save the number of conditions for which it appeared as an event boundary
 # =============================================================================
 #%% open previously saved numEB npy files and combine
-# EBdata1 = np.load(r'fullMDL_EB_milkyway.npz')
+# EBdata1 = np.load(r'partialMDL_EB_slicedBegin_milkyway.npz')
 # EB_all1 = EBdata1['EBs']; bvals1 = EBdata1['bvals']; # tvals = EBdata['tvals'] ; segPts_all = EBdata['segPts']
-# EBdata2 = np.load(r'fullMDL_addendum_EB_milkyway.npz')
+# EBdata2 = np.load(r'supplMDL_EB_slicedBegin_milkyway.npz')
 # EB_all2 = EBdata2['EBs']; bvals2 = EBdata2['bvals']; # tvals = EBdata['tvals'] ; segPts_all = EBdata['segPts']
-#%% Combine the two EBs ordered by the corresponding bvals
-# bvals = np.unique(np.concatenate((bvals1, bvals4)))
-# EB_all = np.zeros((len(bvals), 1315))
+# #%% Combine the two EBs ordered by the corresponding bvals
+# bvals = np.unique(np.concatenate((bvals1, bvals2)))
+# EB_all = np.zeros((len(bvals), YY.shape[-1]))
 # for i, b in enumerate(bvals):
 #     if b in bvals1:
 #         ind1 = np.where(bvals1 == b)[0][0]
-#         if b in bvals4:
+#         if b in bvals2:
 #             print(b, "found in both")
-#             ind2 = np.where(bvals4 == b)[0][0]
-#             assert np.all(EB_all1[ind1,:]==EB_all4[ind2,:])
+#             ind2 = np.where(bvals2 == b)[0][0]
+#             assert np.all(EB_all1[ind1,:]==EB_all2[ind2,:])
 #         EB_all[i,:] = EB_all1[ind1,:]
-#     elif b in bvals4:
-#         ind2 = np.where(bvals4 == b)[0][0]
-#         EB_all[i,:] = EB_all4[ind2,:]
+#     elif b in bvals2:
+#         ind2 = np.where(bvals2 == b)[0][0]
+#         EB_all[i,:] = EB_all2[ind2,:]
 #     else:
 #         print("Error: b not found in either EBs")
 
 #%% Run over multiple values of parameters b and tau
 event_rep = 'const' ; sig = np.std(Y, axis=-1)
-bvals =  np.arange(101,500,1) # np.concatenate((np.arange(100,410,10),np.arange(425,525,25)))
+# extrabvals = np.concatenate((np.arange(332,336,1),np.arange(252,256,1),np.arange(151.5,161,0.5),np.arange(101,126,0.5)))
+bvals = np.arange(101,500,5) # np.concatenate((np.arange(100,410,10),np.arange(425,525,25)))
 tvals = np.arange(25,530,100)
 #%% Run aposteriori MDL
 EB_all = np.zeros((len(bvals), Y.shape[-1]))
@@ -554,7 +555,7 @@ print("total time: %f" % (time.time()-stime))
 #         print("                   ====>time: %f score: %f" % (time.time()-sstime, MDL[-1]))
 # print("total time: %f" % (time.time()-stime))
 #%% save params and results
-np.savez('fullMDL_EB_v2_'+task, EBs=EB_all, bvals=bvals)
+np.savez('allMDL_EB_slicedBegin_'+task, EBs=EB_all, bvals=bvals)
 #%%
 #%% open previously saved numEB npy file
 # EBdata = np.load(r'/home/itzik/PycharmProjects/EventBoundaries_deploy/numEB_monkey_narrative_.npz')
