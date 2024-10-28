@@ -111,6 +111,57 @@ def within_across_corr(D, nEvents, w=5, nPerm=1000, verbose=0, rsd = 0, MDL_b = 
         plt.title('{} {} :\nHeld-out subject HMM with {} events ({} perms)'.format(side, label, nEvents, nPerm))
         plt.show(block=blck)
     return within_across, ev
+def BOLDscore(modelEB, D, w=5, nPerm=1000, verbose=0, rsd = 0):
+    """
+    Given model EB and BOLD data, checks within-across boundary correlations on each subject
+    for the model EB as well for permutations of the EB.
+    Parameters
+    ----------
+    modelEB - np array, timings of the model boundaries
+    D - np array (nSubj x nVortex x nTR), BOLD data
+    w  - time window for time autocorrelation
+    nPerm - number of permutations for statistical analysis
+    verbose - 0 - no print, 1 - print log, 2 - print log and output violin plot
+    rsd - random seed
+
+    Returns
+    -------
+    within_across - np array (nSubj x nPerm+1)
+    """
+    nSubj, _, nTR = D.shape
+    within_across = np.zeros((nSubj, nPerm+1))
+    event_lengths = np.diff(modelEB, prepend=0, append=nTR)
+    events = np.zeros(nTR, dtype=int)
+    events[np.cumsum(event_lengths[:-1])] = 1
+    events = np.cumsum(events)
+    for left_out in range(nSubj):
+        # TEST: Compute correlations separated by w in time for the held-out subject
+        corrs = np.zeros(nTR-w)
+        for t in range(nTR-w):
+            corrs[t] = pearsonr(D[left_out,:,t],D[left_out,:,t+w])[0]
+        # Compute mean
+        # within vs across boundary correlations, for real and permuted bounds
+        np.random.seed(rsd)
+        for p in range(nPerm+1): # p=0 is the real events (no permuataion)
+            within = corrs[events[:-w] == events[w:]].mean()
+            across = corrs[events[:-w] != events[w:]].mean()
+            within_across[left_out, p] = within - across
+            # This makes the next itertion run over a permuted version of the event lengths
+            perm_lengths = np.random.permutation(event_lengths)
+            events = np.zeros(nTR, dtype=int)
+            events[np.cumsum(perm_lengths[:-1])] = 1
+            events = np.cumsum(events)
+        if verbose >0:
+            print('Subj ' + str(left_out+1) + ': WvsA = ' + str(within_across[left_out,0]))
+    if verbose > 1:
+        plt.figure(figsize=(1.5, 5))
+        plt.violinplot(within_across[:, 1:].mean(0), showextrema=True)  # permuted
+        plt.scatter(1, within_across[:, 0].mean(0))  # real
+        plt.gca().xaxis.set_visible(False)
+        plt.ylabel('Within vs across boundary correlation')
+        plt.title('subject predicition score for model with {} events ({} perms)'.format(len(modelEB), nPerm))
+        plt.show(block=blck)
+    return within_across
 def longest_common_substring(s1: str, s2: str):
     if len(s1) < 1 and len(s2) < 1:
         return "", 0, 0
@@ -1101,6 +1152,14 @@ bold_boundaries_in_word_space = [np.where((tokens_timings_sliced >= eb) * (token
 word_boundaries_in_TR = np.array([int(bb) for bb in word_boundaries_in_TR_space])
 print(f"{case_name}: b={best_b}        MDL on words====={len(word_boundaries_in_TR)}=====>", word_boundaries_in_TR)
 print(f"                    MDL on fMRI====={len(bold_boundaries)}=====>", bold_boundaries)
+#%% Predict on BOLd
+WvA = BOLDscore(word_boundaries_in_TR, maskedBOLD, verbose=2)
+WvA_score = WvA[:,0]
+#%%
+fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+# plot distibution of WvA score
+plt.hist(WvA_score, bins=5, label='WvA score')
+plt.show()
 #%% Analyze agreement of embeddings' MDL boundaries, with fMRI HMM boundaries
 corrWin = 50 ; gaussSig = 3
 space = 'TRs'
