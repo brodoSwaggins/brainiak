@@ -2,12 +2,14 @@ import string
 import wesanderson as wa
 import sys
 from functools import reduce
-# import numpy as np
 from MDL_tools  import *
 from scipy.stats import pearsonr
 from scipy.ndimage import gaussian_filter1d
-from scipy.signal import correlate
 from sklearn.decomposition import PCA
+import pandas as pd
+import nilearn as nl
+from nilearn import plotting, image, datasets, masking
+from nilearn.maskers import NiftiLabelsMasker
 import matplotlib
 bcke = matplotlib.get_backend()
 from matplotlib import pyplot as plt
@@ -23,17 +25,13 @@ from matplotlib.animation import FuncAnimation
 smallsize=14; mediumsize=16; largesize=18
 plt.rc('xtick', labelsize=smallsize); plt.rc('ytick', labelsize=smallsize); plt.rc('legend', fontsize=mediumsize)
 plt.rc('figure', titlesize=smallsize); plt.rc('axes', labelsize=mediumsize); plt.rc('axes', titlesize=mediumsize)
-import pandas as pd
-import nilearn as nl
-from nilearn import plotting, image, datasets, masking
-from nilearn.maskers import NiftiLabelsMasker
 # from brainiak.eventseg.event import EventSegment
 import brainiak.eventseg.event
 print(f"Datasets are stored in: {datasets.get_data_dirs()!r}")
 from pathlib import Path; output_dir = Path.cwd() / "images"
 output_dir.mkdir(exist_ok=True, parents=True); print(f"Output will be saved to: {output_dir}")
 figsToPDF = []
-#%%
+#%% Function declarations
 def getBoolMask(atlas, labels, map=None):
     label_index = [atlas.labels.index(l) for l in labels]
     if map is None:
@@ -61,18 +59,19 @@ def ISC(D):
             ISC[v] += pearsonr(D[left_out, v, :], D_avg[v, :])[0]
     ISC /= nSubj
     return ISC
-def within_across_corr(D, nEvents, w=5, nPerm=1000, verbose=0, rsd = 0, MDL_b = -1):
+def within_across_corr(D, nEvents, w=5, nPerm=1000, verbose=0, rsd = 0, MDL_b = -1, title_prefix=''):
     """
-    Compute within vs across boundary correlations for a given number of events
+    Compute within vs across boundary correlations for a given number of events OR a given MDL_b
     Parameters
     ----------
     D : np array (nSubj x nVertices x nTR)
-    nEvents : for HMM, **ignored if @MDL_b > 0**
+    nEvents : for HMM [ignored if @MDL_b > 0]
     w : time window for time autocorrelation
     nPerm : number of permutations for statistical analysis
     verbose : 0 - no print, 1 - print log, 2 - print log and output violin plot
     rsd : random seed
     MDL_b : if > 0, use MDL with b=MDL_b to estimate events. Otherwise, use HMM with @nEvents
+    title_prefix : string to add to the title of the violin plot (for verbose=2)
     Returns
     -------
     within_across : np array (nSubj x nPerm+1)
@@ -82,33 +81,27 @@ def within_across_corr(D, nEvents, w=5, nPerm=1000, verbose=0, rsd = 0, MDL_b = 
     if MDL_b <= 0:
         print(".......... Computing time correlation for HMM with {} events.............".format(nEvents))
     else:
-        print(".......... Computing time correlation for MDL with b={}.............".format(MDL_b))
+        print(":::::::::: Computing time correlation for MDL with b={} :::::::::::".format(MDL_b))
         sigD = np.var(D) ; ev = None
     for left_out in range(nSubj):
         # Fit to all but one subject
         if MDL_b > 0:
             boundaries, _ = EB_split(D[np.arange(nSubj) != left_out,:,:].mean(0), b=MDL_b, rep='const', sig=sigD)
-            #  which event is each time frame
-            events = np.zeros(D.shape[-1], dtype=int)
-            event_counter = 0 ; prev_index = 0
-            for idx in boundaries:
-                events[prev_index:idx] = event_counter
-                prev_index = idx
-                event_counter += 1
-            # Assign the last event to the remaining time points
-            events[prev_index:] = event_counter
+            event_lengths = np.diff(boundaries, prepend=0, append=nTR)
+            events = np.zeros(nTR, dtype=int)
+            events[np.cumsum(event_lengths[:-1])] = 1
+            events = np.cumsum(events)
         else:
             ev = brainiak.eventseg.event.EventSegment(nEvents)
             ev.fit(D[np.arange(nSubj) != left_out,:,:].mean(0).T)
             events = np.argmax(ev.segments_[0], axis=1)
+            _, event_lengths = np.unique(events, return_counts=True)
         # TEST: Compute correlations separated by w in time for the held-out subject
         corrs = np.zeros(nTR-w)
         for t in range(nTR-w):
-            corrs[t] = pearsonr(D[left_out,:,t],D[left_out,:,t+w])[0]
-        _, event_lengths = np.unique(events, return_counts=True)
+            corrs[t] = pearsonr(D[left_out,:,t],D[left_out,:,t+w])[0] #todo over the entire range instead of one time point?
 
-        # Compute mean
-        # within vs across boundary correlations, for real and permuted bounds
+        # Compute mean within vs across boundary correlations, for real and permuted bounds
         np.random.seed(rsd)
         for p in range(nPerm+1): # p=0 is the real events (no permuataion)
             within = corrs[events[:-w] == events[w:]].mean()
@@ -127,7 +120,7 @@ def within_across_corr(D, nEvents, w=5, nPerm=1000, verbose=0, rsd = 0, MDL_b = 
         plt.scatter(1, within_across[:, 0].mean(0))  # real
         plt.gca().xaxis.set_visible(False)
         plt.ylabel('Within vs across boundary correlation')
-        plt.title('{} {} :\nHeld-out subject HMM with {} events ({} perms)'.format(side, label, nEvents, nPerm))
+        plt.title(title_prefix+'\nHeld-out subject HMM with {} events ({} perms)'.format(label, nEvents, nPerm))
         plt.show(block=blck)
     return within_across, ev
 def BOLDscore(modelEB, D, w=5, nPerm=1000, verbose=0, rsd = 0):
@@ -158,8 +151,7 @@ def BOLDscore(modelEB, D, w=5, nPerm=1000, verbose=0, rsd = 0):
         corrs = np.zeros(nTR-w)
         for t in range(nTR-w):
             corrs[t] = pearsonr(D[left_out,:,t],D[left_out,:,t+w])[0]
-        # Compute mean
-        # within vs across boundary correlations, for real and permuted bounds
+        # Compute mean within vs across boundary correlations, for real and permuted bounds
         np.random.seed(rsd)
         for p in range(nPerm+1): # p=0 is the real events (no permuataion)
             within = corrs[events[:-w] == events[w:]].mean()
@@ -1173,8 +1165,9 @@ word_boundaries_in_TR = np.array([int(bb) for bb in word_boundaries_in_TR_space]
 print(f"{case_name}: b={best_b}        MDL on words====={len(word_boundaries_in_TR)}=====>", word_boundaries_in_TR)
 print(f"                    MDL on fMRI====={len(bold_boundaries)}=====>", bold_boundaries)
 #%% Predict on BOLd
-WvA = BOLDscore(word_boundaries_in_TR, maskedBOLD, verbose=2)
+WvA = BOLDscore(word_boundaries_in_TR, maskedBOLD, w=5, verbose=2)
 WvA_score = WvA[:,0]
+print(f"MDL on words vs fMRI: {WvA_score.mean()}")
 #%%
 fig, ax = plt.subplots(1, 1, figsize=(15, 5))
 # plot distibution of WvA score
