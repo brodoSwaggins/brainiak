@@ -262,3 +262,23 @@ for n in numEvents:
     print(f"Number of regions: {n}, log likelihood: {ev.ll_[-1]}")
 # ev = brainiak.eventseg.event.EventSegment(70)
 # ev.fit(regions.T)
+#%%
+#%%  import fMRI data. project to cortical surface
+
+if sys.platform == 'linux':
+    file = r'/home/itzik/Desktop/EventBoundaries/recall_files/sherlock_recall_s1.nii'
+    blck = False
+    dataPath = r'/home/itzik/Desktop/EventBoundaries/Data from Kumar23/'
+else:
+    file = r'C:\Users\izika\OneDrive\Documents\ComDePri\Memory\fMRI data Project\RecallFiles_published\recall_files\sherlock_recall_s1.nii'
+    dataPath = r'C:\\Users\\izika\OneDrive\Documents\ComDePri\Memory\\fMRI data Project\Kumar23Data\\'
+    blck = False
+all_TR = image.load_img(file)
+print(all_TR.shape)
+first_TR = image.index_img(file, 0)
+print(first_TR.shape)
+#%%
+fsaverage = datasets.fetch_surf_fsaverage()
+atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
+all_TR_surfR = nl.surface.vol_to_surf(all_TR, fsaverage.pial_right)
+all_TR_surfL = nl.surface.vol_to_surf(all_TR, fsaverage.pial_left)

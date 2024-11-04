@@ -205,12 +205,6 @@ def longest_common_substring(s1: str, s2: str):
     # Return the longest common substring and starting indices in s1 and s2
     return s1[start_s1:end_s1], start_s1, start_s2
 
-
-import numpy as np
-
-import numpy as np
-
-
 def count_close_ones(model: np.ndarray, data: np.ndarray, distance: int = 3, exclusive=False) -> int:
     """
     Counts the number of 1's in the 'model' time series that are within a specified distance
@@ -294,56 +288,32 @@ def MSE(vector1: np.ndarray, vector2: np.ndarray) -> float:
 
 ############################################################################################################
 ##### Event segmentation of narratives #####################################################################
-#%%  import fMRI data. project to cortical surface
-
-if sys.platform == 'linux':
-    file = r'/home/itzik/Desktop/EventBoundaries/recall_files/sherlock_recall_s1.nii'
-    blck = False
-    dataPath = r'/home/itzik/Desktop/EventBoundaries/Data from Kumar23/'
-else:
-    file = r'C:\Users\izika\OneDrive\Documents\ComDePri\Memory\fMRI data Project\RecallFiles_published\recall_files\sherlock_recall_s1.nii'
-    dataPath = r'C:\\Users\\izika\OneDrive\Documents\ComDePri\Memory\\fMRI data Project\Kumar23Data\\'
-    blck = False
-all_TR = image.load_img(file)
-print(all_TR.shape)
-first_TR = image.index_img(file, 0)
-print(first_TR.shape)
-#%%
-fsaverage = datasets.fetch_surf_fsaverage()
-atlas_destrieux = datasets.fetch_atlas_surf_destrieux()
-all_TR_surfR = nl.surface.vol_to_surf(all_TR, fsaverage.pial_right)
-all_TR_surfL = nl.surface.vol_to_surf(all_TR, fsaverage.pial_left)
 #%% Load MilkyWay preprocessed data
 blck = False
-task = 'milkyway'
+task = 'Milkyway'
 if sys.platform == 'linux':
-    pathDS = r'/home/itzik/Desktop/EventBoundaries/milkyway_vodka/Milkyway/niftis_preprocessed'
+    pathDS = r'/home/itzik/Desktop/EventBoundaries'
 else:
-    pathDS = r'C:\Users\izika\OneDrive\Documents\Hebrew U\Modeling of cognition\brainiak\docs\examples\eventseg\4\milkyway_vodka\Milkyway\niftis_preprocessed'
+    pathDS = r'C:\Users\izika\OneDrive\Documents\Hebrew U\Modeling of cognition\brainiak\docs\examples\eventseg\4'
+pathDS = os.path.join(pathDS, 'milkyway_vodka',task,'niftis_preprocessed')
 file_names = [pathDS + '/' + f for f in os.listdir(pathDS) if f.endswith('.nii') and not f.startswith('.')]
 files = [nl.image.load_img(f) for f in file_names]
-#%% Let's look at the first subject
+#%% Let's zscore and look at the first subject
 ff = file_names[1]
 masker = nl.maskers.NiftiMasker(standardize=True)
 ffz = masker.fit_transform(ff)
 ffz = masker.inverse_transform(ffz)
-#%%
 all_TR = ffz
 print(all_TR.shape)
 first_TR = image.index_img(ffz, 0)
-print(first_TR.shape)
 plotting.plot_stat_map(first_TR, threshold=1, cut_coords=(-4,-27,18))#, output_file=output_dir / "first_TR.png")
 plt.show(block = blck)
 #%% Z score all data
 masker = nl.maskers.MultiNiftiMasker(standardize=True)
 BOLD = masker.fit_transform(file_names)
 BOLD = masker.inverse_transform(BOLD)
-#%% First subject the same?
-plotting.plot_stat_map(image.index_img(BOLD[1], 0), threshold=1, cut_coords=(-4,-27,18))#, output_file=output_dir / "first_TR.png")
-plt.show(block = blck)
-#%% the story actually started at TR=15, and ended at TR=283. This is true for all the subjects,
-# except Subj18 and Subj27 who started at TR=11 and ended at TR=279
-# Extract the story relevant TRS only
+#%% Extract the story relevant TRS only: the story actually started at TR=15, and ended at TR=283.
+# This is true for all the subjects, except Subj18 and Subj27 who started at TR=11 and ended at TR=279
 BOLD_sliced = [image.index_img(BOLD[b], slice(15, 285)) for b in range(len(BOLD))]
 outlier_ind = np.where(["subj18" in f for f in file_names])[0][0]
 BOLD_sliced[outlier_ind] = image.index_img(BOLD[outlier_ind], slice(11, 281))
