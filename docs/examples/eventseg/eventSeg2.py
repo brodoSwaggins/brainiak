@@ -396,8 +396,8 @@ segments_vals = np.arange(2, 50, 1)
 nPerm = 1000 ; w = 5 ; nSubj = len(files)
 #%%
 input("WARNING: You are about to re-write HMM simulation data. Press Enter to continue...")
-bestHMMPerRegion= {}
-allHMMruns_within_acrr= {}
+bestHMMPerRegion= {} # best HMM fit details for each region
+allHMMruns_within_acrr= {} # raw results for all regions
 for r in range(1, len(atlas_destrieux['labels']), 1):
     label = atlas_destrieux['labels'][r]
     regionInd = np.where(atlas_destrieux["map_"+side] == r)[0]
@@ -500,7 +500,7 @@ Y = Y.T
 #%% save embeddings
 np.savez('embeddingsPCA_'+task, embeddings=Y)
 #%%
-Y2 = np.load('embeddingsPCA_milkyway.npz')['embeddings'].T
+Y = np.load('embeddingsPCA_milkyway.npz')['embeddings'].T
 #%% Read pickle of embeds
 # pfile = open('/home/itzik/PycharmProjects/EventBoundaries/results/milkyway/milkywaygpt2-xl-c_1024.pkl', 'rb')
 # embeds_data = pickle.loads(pfile)
@@ -573,7 +573,8 @@ np.savez('allMDL_EB_slicedBegin_'+task, EBs=EB_all, bvals=bvals)
 #%% open previously saved numEB npy file
 # EBdata = np.load(r'/home/itzik/PycharmProjects/EventBoundaries_deploy/numEB_monkey_narrative_.npz')
 path=r'/home/itzik/PycharmProjects/brainiak/docs/examples/eventseg/'
-EBdata = np.load(path+'fullMDL_EB_101to500_v3_'+task+'.npz')
+path= r'/home/itzik/PycharmProjects/EventBoundaries/'
+EBdata = np.load(path+'allMDL_EB_slicedBegin_'+task.lower()+'.npz')
 EB_all = EBdata['EBs']; bvals = EBdata['bvals'] #; tvals = EBdata['tvals'] ; segPts_all = EBdata['segPts']
 
 #%% Plot EB hierarchy
